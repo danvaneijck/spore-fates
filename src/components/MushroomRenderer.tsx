@@ -1,191 +1,174 @@
 import React from 'react';
 
-interface MushroomRendererProps {
-  cap: number;      // -3 to +3
-  stem: number;     // -3 to +3
-  spores: number;   // -3 to +3
-  substrate: number; // 0 to 4
-  size?: number;
+interface TraitExtension {
+  cap: number;
+  stem: number;
+  spores: number;
+  substrate: number;
 }
 
-export const MushroomRenderer: React.FC<MushroomRendererProps> = ({
-  cap,
-  stem,
-  spores,
-  substrate,
-  size = 300,
-}) => {
-  // Map trait values to visual properties
-  const getCapStyle = (value: number) => {
-    const baseSize = size * 0.6;
-    const sizeMultiplier = 1 + (value * 0.15);
-    const capSize = baseSize * sizeMultiplier;
-    
-    // Color intensity based on value
-    const hue = value >= 0 ? 280 : 0; // Purple for positive, red for negative
-    const saturation = 60 + Math.abs(value) * 10;
-    const lightness = 50 + value * 5;
-    
-    return {
-      width: capSize,
-      height: capSize * 0.6,
-      backgroundColor: `hsl(${hue}, ${saturation}%, ${lightness}%)`,
-      borderRadius: '50% 50% 50% 50% / 60% 60% 40% 40%',
-      position: 'absolute' as const,
-      top: size * 0.1,
-      left: '50%',
-      transform: 'translateX(-50%)',
-      boxShadow: `0 ${size * 0.02}px ${size * 0.04}px rgba(0,0,0,0.3)`,
-      border: `${size * 0.01}px solid rgba(255,255,255,0.2)`,
-    };
-  };
+interface MushroomRendererProps {
+  traits: TraitExtension;
+}
 
-  const getStemStyle = (value: number) => {
-    const baseWidth = size * 0.2;
-    const baseHeight = size * 0.4;
-    const widthMultiplier = 1 + (value * 0.1);
-    const heightMultiplier = 1 + (value * 0.15);
-    
-    const stemWidth = baseWidth * widthMultiplier;
-    const stemHeight = baseHeight * heightMultiplier;
-    
-    const lightness = 85 + value * 3;
-    
-    return {
-      width: stemWidth,
-      height: stemHeight,
-      backgroundColor: `hsl(30, 20%, ${lightness}%)`,
-      borderRadius: `${stemWidth * 0.3}px`,
-      position: 'absolute' as const,
-      bottom: size * 0.15,
-      left: '50%',
-      transform: 'translateX(-50%)',
-      boxShadow: `inset ${size * 0.01}px 0 ${size * 0.02}px rgba(0,0,0,0.1)`,
-    };
-  };
-
-  const getSporeStyle = (value: number) => {
-    const count = Math.max(3, 3 + value);
-    const opacity = 0.3 + (Math.abs(value) * 0.1);
-    
-    return {
-      count,
-      opacity,
-      color: value >= 0 ? '#9E7FFF' : '#ef4444',
-    };
-  };
-
-  const getSubstrateStyle = (level: number) => {
-    const colors = [
-      '#8B4513', // Brown - Level 0
-      '#CD853F', // Peru - Level 1
-      '#DAA520', // Goldenrod - Level 2
-      '#FFD700', // Gold - Level 3
-      '#FFA500', // Orange - Level 4
-    ];
-    
-    return {
-      height: size * 0.15,
-      backgroundColor: colors[level] || colors[0],
-      borderRadius: `${size * 0.02}px`,
-      position: 'absolute' as const,
-      bottom: 0,
-      left: 0,
-      right: 0,
-      boxShadow: `0 -${size * 0.01}px ${size * 0.02}px rgba(0,0,0,0.2)`,
-    };
-  };
-
-  const sporeConfig = getSporeStyle(spores);
+export const MushroomRenderer: React.FC<MushroomRendererProps> = ({ traits }) => {
+  // Calculate sizes based on trait values
+  const capSize = 100 + (traits.cap * 15);
+  const stemHeight = 80 + (traits.stem * 10);
+  const sporeCount = Math.max(0, 5 + traits.spores * 2);
   
+  // Colors based on substrate level
+  const substrateColors = [
+    '#9E7FFF', // Level 0 - Purple
+    '#38bdf8', // Level 1 - Blue
+    '#10b981', // Level 2 - Green
+    '#f59e0b', // Level 3 - Orange
+    '#ef4444', // Level 4 - Red
+  ];
+  
+  const glowColor = substrateColors[traits.substrate] || substrateColors[0];
+  
+  // Generate spore particles
+  const spores = Array.from({ length: sporeCount }, (_, i) => {
+    const angle = (i / sporeCount) * Math.PI * 2;
+    const radius = 60 + Math.random() * 40;
+    const x = 150 + Math.cos(angle) * radius;
+    const y = 150 + Math.sin(angle) * radius;
+    const size = 2 + Math.random() * 3;
+    
+    return { x, y, size, delay: i * 0.1 };
+  });
+
   return (
-    <div 
-      className="relative"
-      style={{ 
-        width: size, 
-        height: size,
-        margin: '0 auto',
-      }}
-    >
-      {/* Substrate Layer */}
-      <div style={getSubstrateStyle(substrate)}>
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-white font-bold text-xs opacity-70">
-            Prestige {substrate}
-          </span>
-        </div>
-      </div>
-      
-      {/* Stem */}
-      <div style={getStemStyle(stem)} />
-      
-      {/* Cap */}
-      <div style={getCapStyle(cap)}>
-        {/* Spots on cap */}
-        <div className="absolute inset-0 overflow-hidden" style={{ borderRadius: 'inherit' }}>
-          {[...Array(5)].map((_, i) => (
-            <div
+    <div className="relative w-full aspect-square bg-gradient-to-b from-background to-surface rounded-2xl overflow-hidden">
+      <svg
+        viewBox="0 0 300 300"
+        className="w-full h-full"
+        style={{ filter: `drop-shadow(0 0 20px ${glowColor}40)` }}
+      >
+        {/* Substrate glow effect */}
+        <defs>
+          <radialGradient id="substrateGlow" cx="50%" cy="50%">
+            <stop offset="0%" stopColor={glowColor} stopOpacity="0.3" />
+            <stop offset="100%" stopColor={glowColor} stopOpacity="0" />
+          </radialGradient>
+          
+          <filter id="glow">
+            <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+            <feMerge>
+              <feMergeNode in="coloredBlur"/>
+              <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+          </filter>
+        </defs>
+
+        {/* Background glow */}
+        <circle
+          cx="150"
+          cy="150"
+          r="120"
+          fill="url(#substrateGlow)"
+          opacity={0.3 + (traits.substrate * 0.15)}
+        />
+
+        {/* Spore particles */}
+        {spores.map((spore, i) => (
+          <circle
+            key={i}
+            cx={spore.x}
+            cy={spore.y}
+            r={spore.size}
+            fill={glowColor}
+            opacity="0.6"
+            className="animate-pulse"
+            style={{
+              animationDelay: `${spore.delay}s`,
+              animationDuration: '2s',
+            }}
+          />
+        ))}
+
+        {/* Mushroom stem */}
+        <rect
+          x="135"
+          y={200 - stemHeight}
+          width="30"
+          height={stemHeight}
+          fill="#E5E7EB"
+          rx="15"
+          filter="url(#glow)"
+          className="transition-all duration-500"
+        />
+
+        {/* Stem details */}
+        <ellipse
+          cx="150"
+          cy={210 - stemHeight / 2}
+          rx="18"
+          ry="8"
+          fill="#D1D5DB"
+          opacity="0.5"
+        />
+
+        {/* Mushroom cap */}
+        <ellipse
+          cx="150"
+          cy={200 - stemHeight}
+          rx={capSize / 2}
+          ry={capSize / 3}
+          fill={glowColor}
+          filter="url(#glow)"
+          className="transition-all duration-500"
+        />
+
+        {/* Cap highlight */}
+        <ellipse
+          cx="150"
+          cy={195 - stemHeight}
+          rx={capSize / 3}
+          ry={capSize / 5}
+          fill="white"
+          opacity="0.3"
+        />
+
+        {/* Cap spots */}
+        {traits.cap > 0 && (
+          <>
+            <circle cx="130" cy={200 - stemHeight} r="8" fill="white" opacity="0.6" />
+            <circle cx="170" cy={195 - stemHeight} r="6" fill="white" opacity="0.6" />
+            <circle cx="150" cy={190 - stemHeight} r="7" fill="white" opacity="0.6" />
+          </>
+        )}
+
+        {/* Substrate level indicator */}
+        <g transform="translate(150, 250)">
+          {Array.from({ length: 5 }, (_, i) => (
+            <circle
               key={i}
-              className="absolute rounded-full bg-white opacity-20"
-              style={{
-                width: `${15 + Math.random() * 10}%`,
-                height: `${15 + Math.random() * 10}%`,
-                top: `${20 + Math.random() * 40}%`,
-                left: `${10 + Math.random() * 70}%`,
-              }}
+              cx={-40 + i * 20}
+              cy="0"
+              r="4"
+              fill={i < traits.substrate ? glowColor : '#2F2F2F'}
+              opacity={i < traits.substrate ? 1 : 0.3}
+              className="transition-all duration-300"
             />
           ))}
+        </g>
+      </svg>
+
+      {/* Trait indicators */}
+      <div className="absolute bottom-4 left-4 right-4 flex justify-between text-xs">
+        <div className="bg-background/80 backdrop-blur-sm px-3 py-1 rounded-lg">
+          <span className="text-textSecondary">Cap: </span>
+          <span className="text-text font-semibold">{traits.cap > 0 ? '+' : ''}{traits.cap}</span>
         </div>
-      </div>
-      
-      {/* Spores (particles around mushroom) */}
-      <div className="absolute inset-0 pointer-events-none">
-        {[...Array(sporeConfig.count)].map((_, i) => {
-          const angle = (i / sporeConfig.count) * Math.PI * 2;
-          const radius = size * 0.4;
-          const x = Math.cos(angle) * radius;
-          const y = Math.sin(angle) * radius;
-          
-          return (
-            <div
-              key={i}
-              className="absolute rounded-full animate-pulse"
-              style={{
-                width: size * 0.03,
-                height: size * 0.03,
-                backgroundColor: sporeConfig.color,
-                opacity: sporeConfig.opacity,
-                left: `calc(50% + ${x}px)`,
-                top: `calc(50% + ${y}px)`,
-                transform: 'translate(-50%, -50%)',
-                boxShadow: `0 0 ${size * 0.02}px ${sporeConfig.color}`,
-                animationDelay: `${i * 0.2}s`,
-                animationDuration: '2s',
-              }}
-            />
-          );
-        })}
-      </div>
-      
-      {/* Trait Values Display */}
-      <div className="absolute -bottom-12 left-0 right-0 flex justify-around text-xs font-mono">
-        <div className="text-center">
-          <div className="text-gray-400">Cap</div>
-          <div className={cap >= 0 ? 'text-green-400' : 'text-red-400'}>
-            {cap > 0 ? '+' : ''}{cap}
-          </div>
+        <div className="bg-background/80 backdrop-blur-sm px-3 py-1 rounded-lg">
+          <span className="text-textSecondary">Stem: </span>
+          <span className="text-text font-semibold">{traits.stem > 0 ? '+' : ''}{traits.stem}</span>
         </div>
-        <div className="text-center">
-          <div className="text-gray-400">Stem</div>
-          <div className={stem >= 0 ? 'text-green-400' : 'text-red-400'}>
-            {stem > 0 ? '+' : ''}{stem}
-          </div>
-        </div>
-        <div className="text-center">
-          <div className="text-gray-400">Spores</div>
-          <div className={spores >= 0 ? 'text-green-400' : 'text-red-400'}>
-            {spores > 0 ? '+' : ''}{spores}
-          </div>
+        <div className="bg-background/80 backdrop-blur-sm px-3 py-1 rounded-lg">
+          <span className="text-textSecondary">Spores: </span>
+          <span className="text-text font-semibold">{traits.spores > 0 ? '+' : ''}{traits.spores}</span>
         </div>
       </div>
     </div>

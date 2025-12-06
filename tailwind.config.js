@@ -23,6 +23,9 @@ export default {
         '2xl': '1rem',
         '3xl': '1.5rem',
       },
+      animation: {
+        'pulse': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+      },
     },
   },
   plugins: [],

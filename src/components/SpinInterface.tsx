@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { MushroomRenderer } from './MushroomRenderer';
-import { Dices, TrendingUp, Award, Sparkles } from 'lucide-react';
+import { Sparkles, TrendingUp, Award, Loader2 } from 'lucide-react';
 
 interface TraitExtension {
   cap: number;
@@ -12,7 +12,7 @@ interface TraitExtension {
 interface SpinInterfaceProps {
   tokenId: string;
   traits: TraitExtension;
-  onSpin: (traitTarget: 'cap' | 'stem' | 'spores') => Promise<void>;
+  onSpin: (target: 'cap' | 'stem' | 'spores') => Promise<void>;
   onHarvest: () => Promise<void>;
   onAscend: () => Promise<void>;
   pendingRewards: string;
@@ -28,188 +28,188 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
   pendingRewards,
   isLoading,
 }) => {
-  const [selectedTrait, setSelectedTrait] = useState<'cap' | 'stem' | 'spores'>('cap');
-  const [showConfetti, setShowConfetti] = useState(false);
+  const score = traits.cap + traits.stem + traits.spores;
+  const canAscend = score === 9 && traits.substrate < 4;
+  const hasRewards = parseFloat(pendingRewards) > 0;
 
-  const handleSpin = async () => {
-    try {
-      await onSpin(selectedTrait);
-      // Show confetti animation on successful spin
-      setShowConfetti(true);
-      setTimeout(() => setShowConfetti(false), 3000);
-    } catch (error) {
-      console.error('Spin failed:', error);
-    }
+  const getTraitColor = (value: number) => {
+    if (value >= 2) return 'text-success';
+    if (value >= 0) return 'text-text';
+    return 'text-error';
   };
 
-  const canAscend = traits.cap === 3 && traits.stem === 3 && traits.spores === 3 && traits.substrate < 4;
-  const totalScore = traits.cap + traits.stem + traits.spores;
+  const getSubstrateLevel = () => {
+    const levels = ['None', 'Novice', 'Adept', 'Expert', 'Master', 'Legend'];
+    return levels[traits.substrate] || 'Unknown';
+  };
 
   return (
-    <div className="max-w-4xl mx-auto">
-      {/* Confetti Effect */}
-      {showConfetti && (
-        <div className="fixed inset-0 pointer-events-none z-50">
-          {[...Array(50)].map((_, i) => (
-            <div
-              key={i}
-              className="absolute animate-ping"
-              style={{
-                left: `${Math.random() * 100}%`,
-                top: `${Math.random() * 100}%`,
-                animationDelay: `${Math.random() * 0.5}s`,
-                animationDuration: `${1 + Math.random()}s`,
-              }}
-            >
-              <Sparkles className="text-primary" size={16 + Math.random() * 16} />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Mushroom Display */}
-      <div className="bg-surface rounded-3xl p-8 border border-border mb-6">
-        <div className="text-center mb-6">
-          <h2 className="text-2xl font-bold text-text mb-2">Spore #{tokenId}</h2>
-          <div className="flex items-center justify-center gap-2 text-textSecondary">
-            <Award size={16} />
-            <span>Total Score: {totalScore > 0 ? '+' : ''}{totalScore}</span>
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      {/* Left Column - Mushroom Visualization */}
+      <div className="bg-surface rounded-3xl p-8 border border-border">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className="text-2xl font-bold text-text">Mushroom #{tokenId}</h3>
+            <p className="text-sm text-textSecondary mt-1">
+              Substrate Level: <span className="text-primary font-semibold">{getSubstrateLevel()}</span>
+            </p>
+          </div>
+          <div className="text-right">
+            <div className="text-3xl font-bold text-text">{score > 0 ? '+' : ''}{score}</div>
+            <div className="text-xs text-textSecondary">Total Score</div>
           </div>
         </div>
-        
-        <MushroomRenderer
-          cap={traits.cap}
-          stem={traits.stem}
-          spores={traits.spores}
-          substrate={traits.substrate}
-          size={300}
-        />
+
+        <MushroomRenderer traits={traits} />
+
+        {/* Trait Stats */}
+        <div className="grid grid-cols-3 gap-4 mt-6">
+          <div className="bg-background rounded-xl p-4 text-center">
+            <div className="text-xs text-textSecondary mb-1">Cap</div>
+            <div className={`text-2xl font-bold ${getTraitColor(traits.cap)}`}>
+              {traits.cap > 0 ? '+' : ''}{traits.cap}
+            </div>
+          </div>
+          <div className="bg-background rounded-xl p-4 text-center">
+            <div className="text-xs text-textSecondary mb-1">Stem</div>
+            <div className={`text-2xl font-bold ${getTraitColor(traits.stem)}`}>
+              {traits.stem > 0 ? '+' : ''}{traits.stem}
+            </div>
+          </div>
+          <div className="bg-background rounded-xl p-4 text-center">
+            <div className="text-xs text-textSecondary mb-1">Spores</div>
+            <div className={`text-2xl font-bold ${getTraitColor(traits.spores)}`}>
+              {traits.spores > 0 ? '+' : ''}{traits.spores}
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Trait Selection */}
-      <div className="bg-surface rounded-3xl p-6 border border-border mb-6">
-        <h3 className="text-lg font-semibold text-text mb-4 flex items-center gap-2">
-          <Dices size={20} className="text-primary" />
-          Select Trait to Evolve
-        </h3>
-        
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          {(['cap', 'stem', 'spores'] as const).map((trait) => (
+      {/* Right Column - Actions */}
+      <div className="space-y-6">
+        {/* Spin Actions */}
+        <div className="bg-surface rounded-3xl p-8 border border-border">
+          <div className="flex items-center gap-2 mb-6">
+            <Sparkles size={24} className="text-primary" />
+            <h3 className="text-xl font-bold text-text">Mutate Traits</h3>
+          </div>
+
+          <div className="space-y-3">
             <button
-              key={trait}
-              onClick={() => setSelectedTrait(trait)}
-              className={`p-4 rounded-xl border-2 transition-all ${
-                selectedTrait === trait
-                  ? 'border-primary bg-primary/10'
-                  : 'border-border hover:border-primary/50'
-              }`}
+              onClick={() => onSpin('cap')}
+              disabled={isLoading}
+              className="w-full flex items-center justify-between px-6 py-4 bg-gradient-to-r from-primary/20 to-primary/10 border border-primary/30 rounded-xl hover:border-primary/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
             >
-              <div className="text-sm text-textSecondary capitalize mb-1">{trait}</div>
-              <div className={`text-2xl font-bold ${
-                traits[trait] >= 0 ? 'text-success' : 'text-error'
-              }`}>
-                {traits[trait] > 0 ? '+' : ''}{traits[trait]}
-              </div>
-              <div className="text-xs text-textSecondary mt-1">
-                {traits[trait] === 3 ? 'MAX' : traits[trait] === -3 ? 'MIN' : 'Active'}
+              <span className="text-text font-semibold">Spin Cap</span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-textSecondary">0.5 SHROOM</span>
+                {isLoading ? (
+                  <Loader2 size={20} className="text-primary animate-spin" />
+                ) : (
+                  <Sparkles size={20} className="text-primary group-hover:scale-110 transition-transform" />
+                )}
               </div>
             </button>
-          ))}
-        </div>
 
-        <button
-          onClick={handleSpin}
-          disabled={isLoading}
-          className="w-full bg-primary hover:bg-primary/90 text-white py-4 rounded-xl font-semibold text-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-        >
-          <Dices size={24} />
-          {isLoading ? 'Spinning...' : 'Spin (1 SHROOM)'}
-        </button>
+            <button
+              onClick={() => onSpin('stem')}
+              disabled={isLoading}
+              className="w-full flex items-center justify-between px-6 py-4 bg-gradient-to-r from-secondary/20 to-secondary/10 border border-secondary/30 rounded-xl hover:border-secondary/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+            >
+              <span className="text-text font-semibold">Spin Stem</span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-textSecondary">0.5 SHROOM</span>
+                {isLoading ? (
+                  <Loader2 size={20} className="text-secondary animate-spin" />
+                ) : (
+                  <Sparkles size={20} className="text-secondary group-hover:scale-110 transition-transform" />
+                )}
+              </div>
+            </button>
 
-        <div className="mt-4 p-4 bg-background rounded-xl">
-          <div className="text-xs text-textSecondary mb-2">Success Rate</div>
-          <div className="flex items-center gap-2">
-            <div className="flex-1 bg-surface rounded-full h-2 overflow-hidden">
-              <div
-                className="bg-primary h-full transition-all"
-                style={{ width: `${traits.substrate >= 3 ? 55 : 50}%` }}
-              />
-            </div>
-            <span className="text-sm font-semibold text-text">
-              {traits.substrate >= 3 ? '55%' : '50%'}
-            </span>
+            <button
+              onClick={() => onSpin('spores')}
+              disabled={isLoading}
+              className="w-full flex items-center justify-between px-6 py-4 bg-gradient-to-r from-accent/20 to-accent/10 border border-accent/30 rounded-xl hover:border-accent/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+            >
+              <span className="text-text font-semibold">Spin Spores</span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-textSecondary">0.5 SHROOM</span>
+                {isLoading ? (
+                  <Loader2 size={20} className="text-accent animate-spin" />
+                ) : (
+                  <Sparkles size={20} className="text-accent group-hover:scale-110 transition-transform" />
+                )}
+              </div>
+            </button>
           </div>
-          {traits.substrate >= 2 && (
-            <div className="mt-2 text-xs text-success flex items-center gap-1">
-              <Sparkles size={12} />
-              Safety Net Active: +1 protected from becoming -1
-            </div>
-          )}
-          {traits.substrate >= 4 && (
-            <div className="mt-1 text-xs text-warning flex items-center gap-1">
-              <Sparkles size={12} />
-              Double Boost: 10% chance for +2 on success
-            </div>
-          )}
         </div>
-      </div>
 
-      {/* Rewards & Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Harvest */}
-        <div className="bg-surface rounded-3xl p-6 border border-border">
-          <h3 className="text-lg font-semibold text-text mb-4 flex items-center gap-2">
-            <TrendingUp size={20} className="text-success" />
-            Harvest Rewards
-          </h3>
-          
-          <div className="mb-4">
+        {/* Rewards */}
+        <div className="bg-surface rounded-3xl p-8 border border-border">
+          <div className="flex items-center gap-2 mb-6">
+            <TrendingUp size={24} className="text-success" />
+            <h3 className="text-xl font-bold text-text">Rewards</h3>
+          </div>
+
+          <div className="bg-gradient-to-r from-success/20 to-success/10 border border-success/30 rounded-xl p-6 mb-4">
             <div className="text-sm text-textSecondary mb-1">Pending Rewards</div>
-            <div className="text-3xl font-bold text-success">
-              {pendingRewards} SHROOM
-            </div>
+            <div className="text-3xl font-bold text-success">{pendingRewards} SHROOM</div>
           </div>
 
           <button
             onClick={onHarvest}
-            disabled={isLoading || pendingRewards === '0'}
-            className="w-full bg-success hover:bg-success/90 text-white py-3 rounded-xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={isLoading || !hasRewards}
+            className="w-full px-6 py-4 bg-gradient-to-r from-success to-success/80 text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-success/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none"
           >
-            {isLoading ? 'Harvesting...' : 'Harvest & Reset'}
+            {isLoading ? (
+              <span className="flex items-center justify-center gap-2">
+                <Loader2 size={20} className="animate-spin" />
+                Processing...
+              </span>
+            ) : (
+              'Harvest Rewards'
+            )}
           </button>
-
-          <div className="mt-3 text-xs text-textSecondary">
-            Resets Cap, Stem, and Spores to 0. Substrate level 1+ gives +1 to random trait.
-          </div>
         </div>
 
-        {/* Ascend */}
-        <div className="bg-surface rounded-3xl p-6 border border-border">
-          <h3 className="text-lg font-semibold text-text mb-4 flex items-center gap-2">
-            <Award size={20} className="text-warning" />
-            Ascend (Prestige)
-          </h3>
-          
-          <div className="mb-4">
-            <div className="text-sm text-textSecondary mb-1">Current Prestige</div>
-            <div className="text-3xl font-bold text-warning">
-              Level {traits.substrate}
+        {/* Ascension */}
+        <div className="bg-surface rounded-3xl p-8 border border-border">
+          <div className="flex items-center gap-2 mb-6">
+            <Award size={24} className="text-warning" />
+            <h3 className="text-xl font-bold text-text">Ascension</h3>
+          </div>
+
+          <div className="bg-gradient-to-r from-warning/20 to-warning/10 border border-warning/30 rounded-xl p-6 mb-4">
+            <div className="text-sm text-textSecondary mb-2">
+              {canAscend 
+                ? '✨ Ready to ascend! 20% chance to increase substrate level.'
+                : score === 9 
+                  ? '🏆 Maximum substrate level reached!'
+                  : `📈 Reach +9 score to unlock ascension (Current: ${score > 0 ? '+' : ''}${score})`
+              }
             </div>
+            {canAscend && (
+              <div className="text-xs text-warning mt-2">
+                ⚠️ Burns all pending rewards. Resets traits to 0.
+              </div>
+            )}
           </div>
 
           <button
             onClick={onAscend}
             disabled={isLoading || !canAscend}
-            className="w-full bg-warning hover:bg-warning/90 text-white py-3 rounded-xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full px-6 py-4 bg-gradient-to-r from-warning to-warning/80 text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-warning/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none"
           >
-            {isLoading ? 'Ascending...' : 'Ascend (20% chance)'}
+            {isLoading ? (
+              <span className="flex items-center justify-center gap-2">
+                <Loader2 size={20} className="animate-spin" />
+                Processing...
+              </span>
+            ) : (
+              'Attempt Ascension'
+            )}
           </button>
-
-          <div className="mt-3 text-xs text-textSecondary">
-            {!canAscend && totalScore < 9 && 'Requires all traits at +3'}
-            {!canAscend && traits.substrate >= 4 && 'Max prestige reached'}
-            {canAscend && 'Burns rewards for 20% chance to increase prestige'}
-          </div>
         </div>
       </div>
     </div>

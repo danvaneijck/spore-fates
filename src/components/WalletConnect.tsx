@@ -1,45 +1,48 @@
-import React, { useState, useMemo } from 'react';
-import { ChainId } from '@injectivelabs/ts-types';
-import { Network, getNetworkEndpoints } from '@injectivelabs/networks';
+import React, { useState, useEffect } from 'react';
+import { Wallet, ChevronDown, LogOut } from 'lucide-react';
 import { WalletStrategy } from '@injectivelabs/wallet-strategy';
-import { Wallet } from '@injectivelabs/wallet-base';
+import { Wallet as WalletType } from '@injectivelabs/wallet-base';
+import { ChainId } from '@injectivelabs/ts-types';
 import { getInjectiveAddress } from '@injectivelabs/sdk-ts';
-import { Wallet as WalletIcon, LogOut } from 'lucide-react';
+
+interface WalletConnectProps {
+  onAddressChange: (address: string) => void;
+}
 
 const walletStrategy = new WalletStrategy({
   chainId: ChainId.Testnet,
   strategies: {},
 });
 
-interface WalletConnectProps {
-  onAddressChange: (address: string) => void;
-}
-
 export const WalletConnect: React.FC<WalletConnectProps> = ({ onAddressChange }) => {
   const [address, setAddress] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
+  const [showWalletMenu, setShowWalletMenu] = useState(false);
 
-  const injectiveAddress = useMemo(() => {
-    if (address) {
-      return getInjectiveAddress(address);
-    }
-    return '';
-  }, [address]);
+  const wallets = [
+    { type: WalletType.Keplr, name: 'Keplr', icon: '🔐' },
+    { type: WalletType.Leap, name: 'Leap', icon: '🦘' },
+    { type: WalletType.Metamask, name: 'MetaMask', icon: '🦊' },
+  ];
 
-  const connect = async (wallet: Wallet) => {
+  const connectWallet = async (walletType: WalletType) => {
+    setIsConnecting(true);
+    setShowWalletMenu(false);
+    
     try {
-      setIsConnecting(true);
-      walletStrategy.setWallet(wallet);
+      walletStrategy.setWallet(walletType);
       const addresses = await walletStrategy.getAddresses();
       
-      if (addresses && addresses.length > 0) {
-        const addr = addresses[0];
-        setAddress(addr);
-        onAddressChange(getInjectiveAddress(addr));
-      }
+      // Convert to Injective address if needed (for EVM wallets)
+      const injectiveAddress = walletType === WalletType.Metamask 
+        ? getInjectiveAddress(addresses[0])
+        : addresses[0];
+      
+      setAddress(injectiveAddress);
+      onAddressChange(injectiveAddress);
     } catch (error) {
       console.error('Failed to connect wallet:', error);
-      alert('Failed to connect wallet. Please try again.');
+      alert('Failed to connect wallet. Please make sure your wallet extension is installed.');
     } finally {
       setIsConnecting(false);
     }
@@ -50,54 +53,53 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onAddressChange })
     onAddressChange('');
   };
 
-  if (address) {
-    return (
-      <div className="flex items-center gap-4 bg-surface rounded-2xl px-6 py-3 border border-border">
-        <div className="flex-1">
-          <div className="text-xs text-textSecondary mb-1">Connected</div>
-          <div className="font-mono text-sm text-text">
-            {injectiveAddress.slice(0, 12)}...{injectiveAddress.slice(-8)}
-          </div>
-        </div>
-        <button
-          onClick={disconnect}
-          className="p-2 hover:bg-background rounded-lg transition-colors"
-          title="Disconnect"
-        >
-          <LogOut size={20} className="text-textSecondary" />
-        </button>
-      </div>
-    );
-  }
+  const formatAddress = (addr: string) => {
+    if (!addr) return '';
+    return `${addr.slice(0, 10)}...${addr.slice(-8)}`;
+  };
 
   return (
-    <div className="flex flex-wrap gap-3">
-      <button
-        onClick={() => connect(Wallet.Keplr)}
-        disabled={isConnecting}
-        className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-6 py-3 rounded-xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <WalletIcon size={20} />
-        {isConnecting ? 'Connecting...' : 'Connect Keplr'}
-      </button>
-      
-      <button
-        onClick={() => connect(Wallet.Leap)}
-        disabled={isConnecting}
-        className="flex items-center gap-2 bg-secondary hover:bg-secondary/90 text-white px-6 py-3 rounded-xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <WalletIcon size={20} />
-        {isConnecting ? 'Connecting...' : 'Connect Leap'}
-      </button>
-      
-      <button
-        onClick={() => connect(Wallet.Metamask)}
-        disabled={isConnecting}
-        className="flex items-center gap-2 bg-accent hover:bg-accent/90 text-white px-6 py-3 rounded-xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <WalletIcon size={20} />
-        {isConnecting ? 'Connecting...' : 'Connect Metamask'}
-      </button>
+    <div className="relative">
+      {!address ? (
+        <div className="relative">
+          <button
+            onClick={() => setShowWalletMenu(!showWalletMenu)}
+            disabled={isConnecting}
+            className="flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-primary to-secondary text-white rounded-2xl font-semibold hover:shadow-lg hover:shadow-primary/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Wallet size={20} />
+            {isConnecting ? 'Connecting...' : 'Connect Wallet'}
+            <ChevronDown size={16} className={`transition-transform ${showWalletMenu ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showWalletMenu && (
+            <div className="absolute top-full mt-2 right-0 bg-surface border border-border rounded-2xl shadow-xl overflow-hidden min-w-[200px] z-50">
+              {wallets.map((wallet) => (
+                <button
+                  key={wallet.type}
+                  onClick={() => connectWallet(wallet.type)}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-background transition-colors text-left"
+                >
+                  <span className="text-2xl">{wallet.icon}</span>
+                  <span className="text-text font-medium">{wallet.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center gap-3 px-6 py-3 bg-surface border border-border rounded-2xl">
+          <div className="w-2 h-2 bg-success rounded-full animate-pulse" />
+          <span className="text-text font-mono text-sm">{formatAddress(address)}</span>
+          <button
+            onClick={disconnect}
+            className="ml-2 p-2 hover:bg-background rounded-lg transition-colors"
+            title="Disconnect"
+          >
+            <LogOut size={16} className="text-textSecondary hover:text-error" />
+          </button>
+        </div>
+      )}
     </div>
   );
 };

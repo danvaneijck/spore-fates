@@ -1,4 +1,4 @@
-use cosmwasm_std::StdError;
+use cosmwasm_std::{StdError, OverflowError, DivideByZeroError};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -23,4 +23,10 @@ pub enum ContractError {
 
     #[error("Already at max substrate level")]
     MaxSubstrate {},
+
+    #[error("Overflow error: {0}")]
+    Overflow(#[from] OverflowError),
+
+    #[error("Divide by zero error: {0}")]
+    DivideByZero(#[from] DivideByZeroError),
 }

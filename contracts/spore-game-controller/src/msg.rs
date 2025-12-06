@@ -11,6 +11,21 @@ pub struct InstantiateMsg {
 }
 
 #[cw_serde]
+pub struct TraitExtension {
+    pub cap: i8,
+    pub stem: i8,
+    pub spores: i8,
+    pub substrate: u8,
+}
+
+#[cw_serde]
+pub enum TraitTarget {
+    Cap,
+    Stem,
+    Spores,
+}
+
+#[cw_serde]
 pub enum ExecuteMsg {
     Spin {
         token_id: String,
@@ -31,22 +46,7 @@ pub enum QueryMsg {
     TokenInfo { token_id: String },
 }
 
-#[cw_serde]
-pub enum TraitTarget {
-    Cap,
-    Stem,
-    Spores,
-}
-
-#[cw_serde]
-pub struct TraitExtension {
-    pub cap: i8,
-    pub stem: i8,
-    pub spores: i8,
-    pub substrate: u8,
-}
-
-// Message for updating NFT traits
+// Message for calling CW721 contract
 #[cw_serde]
 pub enum Cw721ExecuteMsg {
     UpdateTraits {

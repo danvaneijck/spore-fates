@@ -23,30 +23,29 @@ pub enum ExecuteMsg {
         token_id: String,
         traits: TraitExtension,
     },
-    /// All standard CW721 messages
-    #[serde(flatten)]
-    Cw721(Cw721ExecuteMsg<TraitExtension, cosmwasm_std::Empty>),
-}
-
-impl From<ExecuteMsg> for Cw721ExecuteMsg<TraitExtension, cosmwasm_std::Empty> {
-    fn from(msg: ExecuteMsg) -> Self {
-        match msg {
-            ExecuteMsg::Cw721(cw721_msg) => cw721_msg,
-            _ => panic!("Cannot convert UpdateTraits to Cw721ExecuteMsg"),
-        }
-    }
+    /// Standard CW721 Mint
+    Mint {
+        token_id: String,
+        owner: String,
+        token_uri: Option<String>,
+        extension: TraitExtension,
+    },
+    /// Standard CW721 TransferNft
+    TransferNft {
+        recipient: String,
+        token_id: String,
+    },
 }
 
 #[cw_serde]
 pub enum QueryMsg {
-    #[serde(flatten)]
-    Cw721(Cw721QueryMsg<cosmwasm_std::Empty>),
-}
-
-impl From<QueryMsg> for Cw721QueryMsg<cosmwasm_std::Empty> {
-    fn from(msg: QueryMsg) -> Self {
-        match msg {
-            QueryMsg::Cw721(cw721_msg) => cw721_msg,
-        }
-    }
+    /// Standard CW721 OwnerOf
+    OwnerOf {
+        token_id: String,
+        include_expired: Option<bool>,
+    },
+    /// Standard CW721 NftInfo
+    NftInfo {
+        token_id: String,
+    },
 }

@@ -46,14 +46,27 @@ pub fn execute(
     info: MessageInfo,
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
+    let base_contract = Cw721Contract::<Extension, Empty, Empty, Empty>::default();
+    
     match msg {
         ExecuteMsg::UpdateTraits { token_id, traits } => {
             execute_update_traits(deps, env, info, token_id, traits)
         }
-        // Delegate all other messages to cw721-base
-        _ => {
-            let base_contract = Cw721Contract::<Extension, Empty, Empty, Empty>::default();
-            Ok(base_contract.execute(deps, env, info, msg.into())?)
+        ExecuteMsg::Mint { token_id, owner, token_uri, extension } => {
+            let cw721_msg = cw721_base::ExecuteMsg::Mint {
+                token_id,
+                owner,
+                token_uri,
+                extension,
+            };
+            Ok(base_contract.execute(deps, env, info, cw721_msg)?)
+        }
+        ExecuteMsg::TransferNft { recipient, token_id } => {
+            let cw721_msg = cw721_base::ExecuteMsg::TransferNft {
+                recipient,
+                token_id,
+            };
+            Ok(base_contract.execute(deps, env, info, cw721_msg)?)
         }
     }
 }
@@ -66,10 +79,10 @@ fn execute_update_traits(
     token_id: String,
     traits: TraitExtension,
 ) -> Result<Response, ContractError> {
-    // Load the game controller address from config
-    // For simplicity, we'll check if sender is the minter (game controller)
     let base_contract = Cw721Contract::<Extension, Empty, Empty, Empty>::default();
-    let minter = base_contract.minter.load(deps.storage)?;
+    
+    // Get minter using the method (not field)
+    let minter = base_contract.minter(deps.as_ref())?;
     
     if info.sender != minter {
         return Err(ContractError::Unauthorized {});
@@ -89,7 +102,7 @@ fn execute_update_traits(
         return Err(ContractError::InvalidTrait { trait_name: "substrate".to_string() });
     }
     
-    // Update the token's extension
+    // Update the token's extension (extension is TraitExtension, not Option<TraitExtension>)
     base_contract.tokens.update(
         deps.storage,
         &token_id,
@@ -97,7 +110,7 @@ fn execute_update_traits(
             let mut token = token.ok_or_else(|| {
                 cosmwasm_std::StdError::not_found(format!("Token {}", token_id))
             })?;
-            token.extension = Some(traits.clone());
+            token.extension = traits.clone();
             Ok(token)
         },
     )?;
@@ -114,7 +127,20 @@ fn execute_update_traits(
 #[entry_point]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     let base_contract = Cw721Contract::<Extension, Empty, Empty, Empty>::default();
-    base_contract.query(deps, env, msg.into())
+    
+    match msg {
+        QueryMsg::OwnerOf { token_id, include_expired } => {
+            let cw721_msg = cw721_base::QueryMsg::OwnerOf {
+                token_id,
+                include_expired,
+            };
+            base_contract.query(deps, env, cw721_msg)
+        }
+        QueryMsg::NftInfo { token_id } => {
+            let cw721_msg = cw721_base::QueryMsg::NftInfo { token_id };
+            base_contract.query(deps, env, cw721_msg)
+        }
+    }
 }
 
 use cosmwasm_std::Empty;
@@ -123,7 +149,7 @@ use cosmwasm_std::Empty;
 mod tests {
     use super::*;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
-    use cosmwasm_std::{from_json, Addr};
+    use cosmwasm_std::from_json;
     use cw721::{Cw721Query, NftInfoResponse, OwnerOfResponse};
 
     const MINTER: &str = "minter";
@@ -140,17 +166,17 @@ mod tests {
     }
 
     fn mint_token(deps: DepsMut, token_id: &str, owner: &str) -> Result<Response, ContractError> {
-        let msg = ExecuteMsg::Cw721(cw721_base::ExecuteMsg::Mint {
+        let msg = ExecuteMsg::Mint {
             token_id: token_id.to_string(),
             owner: owner.to_string(),
             token_uri: None,
-            extension: Some(TraitExtension {
+            extension: TraitExtension {
                 cap: 0,
                 stem: 0,
                 spores: 0,
                 substrate: 0,
-            }),
-        });
+            },
+        };
         let info = mock_info(MINTER, &[]);
         execute(deps, mock_env(), info, msg)
     }
@@ -162,9 +188,9 @@ mod tests {
         
         assert_eq!(res.messages.len(), 0);
         
-        // Query contract info
+        // Query contract info using the method
         let base_contract = Cw721Contract::<Extension, Empty, Empty, Empty>::default();
-        let info = base_contract.contract_info(deps.as_ref().storage).unwrap();
+        let info = base_contract.contract_info(deps.as_ref()).unwrap();
         
         assert_eq!(info.name, "SporeFates");
         assert_eq!(info.symbol, "SPORE");
@@ -179,10 +205,10 @@ mod tests {
         assert_eq!(res.messages.len(), 0);
         
         // Query owner
-        let query_msg = QueryMsg::Cw721(cw721::Cw721QueryMsg::OwnerOf {
+        let query_msg = QueryMsg::OwnerOf {
             token_id: "1".to_string(),
             include_expired: None,
-        });
+        };
         let res = query(deps.as_ref(), mock_env(), query_msg).unwrap();
         let owner: OwnerOfResponse = from_json(&res).unwrap();
         assert_eq!(owner.owner, USER);
@@ -212,13 +238,14 @@ mod tests {
         assert_eq!(res.attributes[0].value, "update_traits");
         
         // Query updated traits
-        let query_msg = QueryMsg::Cw721(cw721::Cw721QueryMsg::NftInfo {
+        let query_msg = QueryMsg::NftInfo {
             token_id: "1".to_string(),
-        });
+        };
         let res = query(deps.as_ref(), mock_env(), query_msg).unwrap();
         let nft_info: NftInfoResponse<TraitExtension> = from_json(&res).unwrap();
         
-        let traits = nft_info.extension.unwrap();
+        // extension is TraitExtension, not Option<TraitExtension>
+        let traits = nft_info.extension;
         assert_eq!(traits.cap, 2);
         assert_eq!(traits.stem, -1);
         assert_eq!(traits.spores, 3);
@@ -297,18 +324,18 @@ mod tests {
         setup_contract(deps.as_mut()).unwrap();
         mint_token(deps.as_mut(), "1", USER).unwrap();
         
-        let msg = ExecuteMsg::Cw721(cw721_base::ExecuteMsg::TransferNft {
+        let msg = ExecuteMsg::TransferNft {
             recipient: "new_owner".to_string(),
             token_id: "1".to_string(),
-        });
+        };
         let info = mock_info(USER, &[]);
         execute(deps.as_mut(), mock_env(), info, msg).unwrap();
         
         // Query new owner
-        let query_msg = QueryMsg::Cw721(cw721::Cw721QueryMsg::OwnerOf {
+        let query_msg = QueryMsg::OwnerOf {
             token_id: "1".to_string(),
             include_expired: None,
-        });
+        };
         let res = query(deps.as_ref(), mock_env(), query_msg).unwrap();
         let owner: OwnerOfResponse = from_json(&res).unwrap();
         assert_eq!(owner.owner, "new_owner");

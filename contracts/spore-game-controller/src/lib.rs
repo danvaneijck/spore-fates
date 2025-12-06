@@ -1,6 +1,6 @@
 use cosmwasm_std::{
     entry_point, to_json_binary, Binary, Coin, Deps, DepsMut, Env, MessageInfo, Response,
-    StdResult, Uint128, WasmMsg, CosmosMsg, BankMsg, QueryRequest, WasmQuery,
+    StdResult, Uint128, WasmMsg, BankMsg,
 };
 use sha2::{Sha256, Digest};
 
@@ -66,12 +66,6 @@ pub fn execute(
 
 /// Get randomness using Pyth price feed + block data
 fn get_randomness(env: &Env, deps: &DepsMut, nonce: u64) -> Result<u8, ContractError> {
-    let config = CONFIG.load(deps.storage)?;
-    
-    // Query Pyth contract for price data
-    // Note: This is a simplified version. In production, you'd query the actual Pyth contract
-    // For now, we'll use block data as the primary entropy source
-    
     let mut hasher = Sha256::new();
     
     // Add block time (nanoseconds)
@@ -142,12 +136,7 @@ fn execute_spin(
         &cw721::Cw721QueryMsg::NftInfo { token_id: token_id.clone() },
     )?;
     
-    let mut traits = nft_info.extension.unwrap_or(TraitExtension {
-        cap: 0,
-        stem: 0,
-        spores: 0,
-        substrate: 0,
-    });
+    let mut traits = nft_info.extension;
     
     // Checkpoint rewards
     if !token_info.current_shares.is_zero() && !global_state.total_shares.is_zero() {
@@ -294,7 +283,7 @@ fn execute_harvest(
         &cw721::Cw721QueryMsg::NftInfo { token_id: token_id.clone() },
     )?;
     
-    let mut traits = nft_info.extension.unwrap_or_default();
+    let mut traits = nft_info.extension;
     let substrate = traits.substrate;
     
     traits.cap = 0;
@@ -370,7 +359,7 @@ fn execute_ascend(
         &cw721::Cw721QueryMsg::NftInfo { token_id: token_id.clone() },
     )?;
     
-    let mut traits = nft_info.extension.unwrap_or_default();
+    let mut traits = nft_info.extension;
     
     // Check if all traits are +3
     if traits.cap != 3 || traits.stem != 3 || traits.spores != 3 {
@@ -463,7 +452,7 @@ impl Default for TraitExtension {
 mod tests {
     use super::*;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info, MockQuerier};
-    use cosmwasm_std::{from_json, Addr, coins, SystemError, SystemResult, WasmQuery as CosmWasmQuery};
+    use cosmwasm_std::{from_json, coins, SystemError, SystemResult, WasmQuery as CosmWasmQuery};
     use cw721::{NftInfoResponse, OwnerOfResponse};
 
     const PYTH_CONTRACT: &str = "pyth_contract";
@@ -497,7 +486,7 @@ mod tests {
                                 if query_token_id == token_id {
                                     let response = NftInfoResponse {
                                         token_uri: None,
-                                        extension: Some(traits.clone()),
+                                        extension: traits.clone(),
                                     };
                                     SystemResult::Ok(to_json_binary(&response).into())
                                 } else {

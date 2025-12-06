@@ -1,0 +1,35 @@
+[workspace]
+members = [
+    "contracts/cw721-spore",
+    "contracts/spore-game-controller",
+]
+
+resolver = "2"
+
+[profile.release]
+opt-level = 3
+debug = false
+rpath = false
+lto = true
+debug-assertions = false
+codegen-units = 1
+panic = 'abort'
+incremental = false
+overflow-checks = true
+
+[workspace.dependencies]
+cosmwasm-std = "2.2.2"
+cosmwasm-schema = "2.2.2"
+cw-storage-plus = "2.0.0"
+cw2 = "2.0.0"
+cw20 = "2.0.0"
+cw20-base = "2.0.0"
+thiserror = "1.0"
+schemars = "0.8"
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+ed25519-zebra = "4.1.0"
+
+[workspace.dependencies.cosmwasm-std-test]
+package = "cosmwasm-std"
+version = "2.2.2"
+features = ["stargate", "staking"]

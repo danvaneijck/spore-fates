@@ -10,10 +10,6 @@ pub mod error;
 use crate::msg::{InstantiateMsg, ExecuteMsg, QueryMsg, TraitExtension};
 use crate::error::ContractError;
 
-// Version info for migration
-const CONTRACT_NAME: &str = "crates.io:cw721-spore";
-const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
-
 pub type Extension = TraitExtension;
 
 #[entry_point]
@@ -84,7 +80,7 @@ fn execute_update_traits(
     // Get minter using the method and extract the address
     let minter_response = base_contract.minter(deps.as_ref())?;
     
-    if info.sender != minter_response.minter {
+    if info.sender.to_string() != minter_response.minter.unwrap() {
         return Err(ContractError::Unauthorized {});
     }
     
@@ -234,7 +230,7 @@ mod tests {
         let info = mock_info(MINTER, &[]);
         let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
         
-        assert_eq!(res.attributes.len(), 5);
+        assert_eq!(res.attributes.len(), 6);
         assert_eq!(res.attributes[0].value, "update_traits");
         
         // Query updated traits

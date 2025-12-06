@@ -3,6 +3,7 @@ use cosmwasm_std::{
     StdResult, Uint128, WasmMsg, BankMsg,
 };
 use sha2::{Sha256, Digest};
+use cw2::set_contract_version;
 
 pub mod msg;
 pub mod state;
@@ -22,6 +23,8 @@ pub fn instantiate(
     _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
+    set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+
     let config = Config {
         payment_denom: msg.payment_denom,
         spin_cost: msg.spin_cost,
@@ -76,11 +79,6 @@ fn get_randomness(env: &Env, _deps: &DepsMut, nonce: u64) -> Result<u8, Contract
     
     // Add nonce
     hasher.update(nonce.to_le_bytes());
-    
-    // In production, add Pyth price data here:
-    // let price_data = query_pyth_price(deps, &config.pyth_contract_addr, &config.price_feed_id)?;
-    // hasher.update(price_data.price.to_le_bytes());
-    // hasher.update(price_data.conf.to_le_bytes());
     
     let result = hasher.finalize();
     
@@ -257,7 +255,7 @@ fn execute_harvest(
         },
     )?;
     
-    if owner_response.owner != info.sender {
+    if owner_response.owner != info.sender.to_string() {
         return Err(ContractError::Unauthorized {});
     }
     
@@ -349,7 +347,7 @@ fn execute_ascend(
         },
     )?;
     
-    if owner_response.owner != info.sender {
+    if owner_response.owner != info.sender.to_string() {
         return Err(ContractError::Unauthorized {});
     }
     
@@ -458,42 +456,58 @@ impl Default for TraitExtension {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info, MockQuerier};
-    use cosmwasm_std::{from_json, coins, SystemError, SystemResult, WasmQuery as CosmWasmQuery};
+    use cosmwasm_std::testing::{message_info, mock_env, MockApi, MockQuerier, MockStorage};
+    use cosmwasm_std::{from_json, coins, Addr, SystemError, SystemResult, OwnedDeps, WasmQuery as CosmWasmQuery};
     use cw721::{NftInfoResponse, OwnerOfResponse};
 
-    const PYTH_CONTRACT: &str = "pyth_contract";
-    const CW721_CONTRACT: &str = "cw721_contract";
-    const OWNER: &str = "owner";
     const PAYMENT_DENOM: &str = "factory/creator/shroom";
 
-    fn setup_contract(deps: DepsMut) -> Result<Response, ContractError> {
+    // Setup custom mocks using MockApi to generate valid Bech32 addresses
+    fn mock_deps_custom() -> OwnedDeps<MockStorage, MockApi, MockQuerier> {
+        OwnedDeps {
+            storage: MockStorage::default(),
+            api: MockApi::default(),
+            querier: MockQuerier::default(),
+            custom_query_type: std::marker::PhantomData,
+        }
+    }
+
+    fn setup_contract(deps: DepsMut, creator: &Addr, cw721: &Addr, pyth: &Addr) -> Result<Response, ContractError> {
         let msg = InstantiateMsg {
             payment_denom: PAYMENT_DENOM.to_string(),
             spin_cost: Uint128::new(1_000_000),
-            pyth_contract_addr: PYTH_CONTRACT.to_string(),
+            pyth_contract_addr: pyth.to_string(),
             price_feed_id: "test_feed_id".to_string(),
-            cw721_addr: CW721_CONTRACT.to_string(),
+            cw721_addr: cw721.to_string(),
         };
-        let info = mock_info("creator", &[]);
+        let info = message_info(creator, &[]);
         instantiate(deps, mock_env(), info, msg)
     }
 
     // Mock querier that returns NFT info
-    fn mock_querier_with_nft(token_id: &str, owner: &str, traits: TraitExtension) -> MockQuerier {
-        let mut querier = MockQuerier::new(&[]);
-        
+    // NOTE: We pass Addr here to ensure we match against valid Bech32 strings
+    fn mock_querier_with_nft(
+        querier: &mut MockQuerier, 
+        cw721_contract: &Addr, 
+        token_id: &str, 
+        owner: &Addr, 
+        traits: TraitExtension
+    ) {
+        let cw721_str = cw721_contract.to_string();
+        let token_id_str = token_id.to_string();
+        let owner_str = owner.to_string();
+
         querier.update_wasm(move |query| {
             match query {
                 CosmWasmQuery::Smart { contract_addr, msg } => {
-                    if contract_addr == CW721_CONTRACT {
+                    if contract_addr == &cw721_str {
                         let parsed: cw721::Cw721QueryMsg = from_json(msg).unwrap();
                         match parsed {
                             cw721::Cw721QueryMsg::NftInfo { token_id: query_token_id } => {
-                                if query_token_id == token_id {
+                                if query_token_id == token_id_str {
                                     let response = NftInfoResponse {
                                         token_uri: None,
-                                        extension: traits,
+                                        extension: traits.clone(),
                                     };
                                     SystemResult::Ok(to_json_binary(&response).into())
                                 } else {
@@ -504,9 +518,9 @@ mod tests {
                                 }
                             }
                             cw721::Cw721QueryMsg::OwnerOf { token_id: query_token_id, .. } => {
-                                if query_token_id == token_id {
+                                if query_token_id == token_id_str {
                                     let response = OwnerOfResponse {
-                                        owner: owner.to_string(),
+                                        owner: owner_str.clone(),
                                         approvals: vec![],
                                     };
                                     SystemResult::Ok(to_json_binary(&response).into())
@@ -532,14 +546,16 @@ mod tests {
                 }),
             }
         });
-        
-        querier
     }
 
     #[test]
     fn test_instantiate() {
-        let mut deps = mock_dependencies();
-        let res = setup_contract(deps.as_mut()).unwrap();
+        let mut deps = mock_deps_custom();
+        let creator = deps.api.addr_make("creator");
+        let cw721 = deps.api.addr_make("cw721");
+        let pyth = deps.api.addr_make("pyth");
+
+        let res = setup_contract(deps.as_mut(), &creator, &cw721, &pyth).unwrap();
         
         assert_eq!(res.attributes.len(), 2);
         assert_eq!(res.attributes[0].value, "instantiate");
@@ -604,8 +620,13 @@ mod tests {
 
     #[test]
     fn test_spin_insufficient_funds() {
-        let mut deps = mock_dependencies();
-        setup_contract(deps.as_mut()).unwrap();
+        let mut deps = mock_deps_custom();
+        let creator = deps.api.addr_make("creator");
+        let cw721 = deps.api.addr_make("cw721");
+        let pyth = deps.api.addr_make("pyth");
+        let owner = deps.api.addr_make("owner");
+
+        setup_contract(deps.as_mut(), &creator, &cw721, &pyth).unwrap();
         
         let msg = ExecuteMsg::Spin {
             token_id: "1".to_string(),
@@ -613,7 +634,7 @@ mod tests {
         };
         
         // Send insufficient payment
-        let info = mock_info(OWNER, &coins(500_000, PAYMENT_DENOM));
+        let info = message_info(&owner, &coins(500_000, PAYMENT_DENOM));
         let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
         
         assert!(matches!(err, ContractError::InsufficientFunds {}));
@@ -621,8 +642,13 @@ mod tests {
 
     #[test]
     fn test_spin_invalid_payment_denom() {
-        let mut deps = mock_dependencies();
-        setup_contract(deps.as_mut()).unwrap();
+        let mut deps = mock_deps_custom();
+        let creator = deps.api.addr_make("creator");
+        let cw721 = deps.api.addr_make("cw721");
+        let pyth = deps.api.addr_make("pyth");
+        let owner = deps.api.addr_make("owner");
+
+        setup_contract(deps.as_mut(), &creator, &cw721, &pyth).unwrap();
         
         let msg = ExecuteMsg::Spin {
             token_id: "1".to_string(),
@@ -630,7 +656,7 @@ mod tests {
         };
         
         // Send wrong denom
-        let info = mock_info(OWNER, &coins(1_000_000, "wrong_denom"));
+        let info = message_info(&owner, &coins(1_000_000, "wrong_denom"));
         let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
         
         assert!(matches!(err, ContractError::InvalidPayment {}));
@@ -638,8 +664,13 @@ mod tests {
 
     #[test]
     fn test_spin_success() {
-        let mut deps = mock_dependencies();
-        setup_contract(deps.as_mut()).unwrap();
+        let mut deps = mock_deps_custom();
+        let creator = deps.api.addr_make("creator");
+        let cw721 = deps.api.addr_make("cw721");
+        let pyth = deps.api.addr_make("pyth");
+        let owner = deps.api.addr_make("owner");
+
+        setup_contract(deps.as_mut(), &creator, &cw721, &pyth).unwrap();
         
         // Set up mock querier with NFT
         let traits = TraitExtension {
@@ -648,14 +679,14 @@ mod tests {
             spores: 0,
             substrate: 0,
         };
-        deps.querier = mock_querier_with_nft("1", OWNER, traits);
+        mock_querier_with_nft(&mut deps.querier, &cw721, "1", &owner, traits);
         
         let msg = ExecuteMsg::Spin {
             token_id: "1".to_string(),
             trait_target: TraitTarget::Cap,
         };
         
-        let info = mock_info(OWNER, &coins(1_000_000, PAYMENT_DENOM));
+        let info = message_info(&owner, &coins(1_000_000, PAYMENT_DENOM));
         let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
         
         // Should have update message
@@ -663,24 +694,30 @@ mod tests {
         assert_eq!(res.attributes[0].value, "spin");
         
         // Check global state updated
-        let global_state = GLOBAL_STATE.load(deps.as_ref().storage).unwrap();
+        let global_state: GlobalState = from_json(&query(deps.as_ref(), mock_env(), QueryMsg::GlobalState {}).unwrap()).unwrap();
         assert_eq!(global_state.spin_nonce, 1);
     }
 
     #[test]
     fn test_harvest_unauthorized() {
-        let mut deps = mock_dependencies();
-        setup_contract(deps.as_mut()).unwrap();
+        let mut deps = mock_deps_custom();
+        let creator = deps.api.addr_make("creator");
+        let cw721 = deps.api.addr_make("cw721");
+        let pyth = deps.api.addr_make("pyth");
+        let owner = deps.api.addr_make("owner");
+        let other = deps.api.addr_make("other");
+
+        setup_contract(deps.as_mut(), &creator, &cw721, &pyth).unwrap();
         
         // Set up mock querier with NFT owned by different user
         let traits = TraitExtension::default();
-        deps.querier = mock_querier_with_nft("1", "different_owner", traits);
+        mock_querier_with_nft(&mut deps.querier, &cw721, "1", &other, traits);
         
         let msg = ExecuteMsg::Harvest {
             token_id: "1".to_string(),
         };
         
-        let info = mock_info(OWNER, &[]);
+        let info = message_info(&owner, &[]);
         let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
         
         assert!(matches!(err, ContractError::Unauthorized {}));
@@ -688,11 +725,16 @@ mod tests {
 
     #[test]
     fn test_harvest_no_rewards() {
-        let mut deps = mock_dependencies();
-        setup_contract(deps.as_mut()).unwrap();
+        let mut deps = mock_deps_custom();
+        let creator = deps.api.addr_make("creator");
+        let cw721 = deps.api.addr_make("cw721");
+        let pyth = deps.api.addr_make("pyth");
+        let owner = deps.api.addr_make("owner");
+
+        setup_contract(deps.as_mut(), &creator, &cw721, &pyth).unwrap();
         
         let traits = TraitExtension::default();
-        deps.querier = mock_querier_with_nft("1", OWNER, traits);
+        mock_querier_with_nft(&mut deps.querier, &cw721, "1", &owner, traits);
         
         // Create token info with no rewards
         TOKEN_INFO.save(
@@ -709,7 +751,7 @@ mod tests {
             token_id: "1".to_string(),
         };
         
-        let info = mock_info(OWNER, &[]);
+        let info = message_info(&owner, &[]);
         let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
         
         assert!(matches!(err, ContractError::NoRewards {}));
@@ -717,8 +759,13 @@ mod tests {
 
     #[test]
     fn test_ascend_not_max_level() {
-        let mut deps = mock_dependencies();
-        setup_contract(deps.as_mut()).unwrap();
+        let mut deps = mock_deps_custom();
+        let creator = deps.api.addr_make("creator");
+        let cw721 = deps.api.addr_make("cw721");
+        let pyth = deps.api.addr_make("pyth");
+        let owner = deps.api.addr_make("owner");
+
+        setup_contract(deps.as_mut(), &creator, &cw721, &pyth).unwrap();
         
         // Traits not at max
         let traits = TraitExtension {
@@ -727,13 +774,13 @@ mod tests {
             spores: 3,
             substrate: 0,
         };
-        deps.querier = mock_querier_with_nft("1", OWNER, traits);
+        mock_querier_with_nft(&mut deps.querier, &cw721, "1", &owner, traits);
         
         let msg = ExecuteMsg::Ascend {
             token_id: "1".to_string(),
         };
         
-        let info = mock_info(OWNER, &[]);
+        let info = message_info(&owner, &[]);
         let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
         
         assert!(matches!(err, ContractError::NotMaxLevel {}));
@@ -741,8 +788,13 @@ mod tests {
 
     #[test]
     fn test_ascend_max_substrate() {
-        let mut deps = mock_dependencies();
-        setup_contract(deps.as_mut()).unwrap();
+        let mut deps = mock_deps_custom();
+        let creator = deps.api.addr_make("creator");
+        let cw721 = deps.api.addr_make("cw721");
+        let pyth = deps.api.addr_make("pyth");
+        let owner = deps.api.addr_make("owner");
+
+        setup_contract(deps.as_mut(), &creator, &cw721, &pyth).unwrap();
         
         // Already at max substrate
         let traits = TraitExtension {
@@ -751,13 +803,13 @@ mod tests {
             spores: 3,
             substrate: 4,
         };
-        deps.querier = mock_querier_with_nft("1", OWNER, traits);
+        mock_querier_with_nft(&mut deps.querier, &cw721, "1", &owner, traits);
         
         let msg = ExecuteMsg::Ascend {
             token_id: "1".to_string(),
         };
         
-        let info = mock_info(OWNER, &[]);
+        let info = message_info(&owner, &[]);
         let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
         
         assert!(matches!(err, ContractError::MaxSubstrate {}));
@@ -765,8 +817,12 @@ mod tests {
 
     #[test]
     fn test_query_token_info() {
-        let mut deps = mock_dependencies();
-        setup_contract(deps.as_mut()).unwrap();
+        let mut deps = mock_deps_custom();
+        let creator = deps.api.addr_make("creator");
+        let cw721 = deps.api.addr_make("cw721");
+        let pyth = deps.api.addr_make("pyth");
+
+        setup_contract(deps.as_mut(), &creator, &cw721, &pyth).unwrap();
         
         // Save token info
         let token_info = TokenInfo {
@@ -791,8 +847,12 @@ mod tests {
 
     #[test]
     fn test_randomness_generation() {
-        let mut deps = mock_dependencies();
-        setup_contract(deps.as_mut()).unwrap();
+        let mut deps = mock_deps_custom();
+        let creator = deps.api.addr_make("creator");
+        let cw721 = deps.api.addr_make("cw721");
+        let pyth = deps.api.addr_make("pyth");
+
+        setup_contract(deps.as_mut(), &creator, &cw721, &pyth).unwrap();
         
         let env = mock_env();
         
@@ -804,10 +864,5 @@ mod tests {
         // Values should be different due to different nonces
         assert_ne!(random1, random2);
         assert_ne!(random2, random3);
-        
-        // All values should be in valid range (0-255)
-        assert!(random1 <= 255);
-        assert!(random2 <= 255);
-        assert!(random3 <= 255);
     }
 }

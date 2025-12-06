@@ -458,3 +458,360 @@ impl Default for TraitExtension {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info, MockQuerier};
+    use cosmwasm_std::{from_json, Addr, coins, SystemError, SystemResult, WasmQuery as CosmWasmQuery};
+    use cw721::{NftInfoResponse, OwnerOfResponse};
+
+    const PYTH_CONTRACT: &str = "pyth_contract";
+    const CW721_CONTRACT: &str = "cw721_contract";
+    const OWNER: &str = "owner";
+    const PAYMENT_DENOM: &str = "factory/creator/shroom";
+
+    fn setup_contract(deps: DepsMut) -> Result<Response, ContractError> {
+        let msg = InstantiateMsg {
+            payment_denom: PAYMENT_DENOM.to_string(),
+            spin_cost: Uint128::new(1_000_000),
+            pyth_contract_addr: PYTH_CONTRACT.to_string(),
+            price_feed_id: "test_feed_id".to_string(),
+            cw721_addr: CW721_CONTRACT.to_string(),
+        };
+        let info = mock_info("creator", &[]);
+        instantiate(deps, mock_env(), info, msg)
+    }
+
+    // Mock querier that returns NFT info
+    fn mock_querier_with_nft(token_id: &str, owner: &str, traits: TraitExtension) -> MockQuerier {
+        let mut querier = MockQuerier::new(&[]);
+        
+        querier.update_wasm(move |query| {
+            match query {
+                CosmWasmQuery::Smart { contract_addr, msg } => {
+                    if contract_addr == CW721_CONTRACT {
+                        let parsed: cw721::Cw721QueryMsg<cosmwasm_std::Empty> = from_json(msg).unwrap();
+                        match parsed {
+                            cw721::Cw721QueryMsg::NftInfo { token_id: query_token_id } => {
+                                if query_token_id == token_id {
+                                    let response = NftInfoResponse {
+                                        token_uri: None,
+                                        extension: Some(traits.clone()),
+                                    };
+                                    SystemResult::Ok(to_json_binary(&response).into())
+                                } else {
+                                    SystemResult::Err(SystemError::InvalidRequest {
+                                        error: "Token not found".to_string(),
+                                        request: msg.clone(),
+                                    })
+                                }
+                            }
+                            cw721::Cw721QueryMsg::OwnerOf { token_id: query_token_id, .. } => {
+                                if query_token_id == token_id {
+                                    let response = OwnerOfResponse {
+                                        owner: owner.to_string(),
+                                        approvals: vec![],
+                                    };
+                                    SystemResult::Ok(to_json_binary(&response).into())
+                                } else {
+                                    SystemResult::Err(SystemError::InvalidRequest {
+                                        error: "Token not found".to_string(),
+                                        request: msg.clone(),
+                                    })
+                                }
+                            }
+                            _ => SystemResult::Err(SystemError::UnsupportedRequest {
+                                kind: "Unsupported query".to_string(),
+                            }),
+                        }
+                    } else {
+                        SystemResult::Err(SystemError::UnsupportedRequest {
+                            kind: "Unknown contract".to_string(),
+                        })
+                    }
+                }
+                _ => SystemResult::Err(SystemError::UnsupportedRequest {
+                    kind: "Unsupported query type".to_string(),
+                }),
+            }
+        });
+        
+        querier
+    }
+
+    #[test]
+    fn test_instantiate() {
+        let mut deps = mock_dependencies();
+        let res = setup_contract(deps.as_mut()).unwrap();
+        
+        assert_eq!(res.attributes.len(), 2);
+        assert_eq!(res.attributes[0].value, "instantiate");
+        assert_eq!(res.attributes[1].value, PAYMENT_DENOM);
+        
+        // Query config
+        let query_msg = QueryMsg::Config {};
+        let res = query(deps.as_ref(), mock_env(), query_msg).unwrap();
+        let config: Config = from_json(&res).unwrap();
+        
+        assert_eq!(config.payment_denom, PAYMENT_DENOM);
+        assert_eq!(config.spin_cost, Uint128::new(1_000_000));
+        
+        // Query global state
+        let query_msg = QueryMsg::GlobalState {};
+        let res = query(deps.as_ref(), mock_env(), query_msg).unwrap();
+        let global_state: GlobalState = from_json(&res).unwrap();
+        
+        assert_eq!(global_state.total_shares, Uint128::zero());
+        assert_eq!(global_state.global_reward_index, Uint128::zero());
+        assert_eq!(global_state.spin_nonce, 0);
+    }
+
+    #[test]
+    fn test_calculate_shares() {
+        // Base case: all traits at 0
+        let traits = TraitExtension {
+            cap: 0,
+            stem: 0,
+            spores: 0,
+            substrate: 0,
+        };
+        assert_eq!(calculate_shares(&traits), Uint128::new(100));
+        
+        // Positive traits
+        let traits = TraitExtension {
+            cap: 2,
+            stem: 1,
+            spores: 3,
+            substrate: 0,
+        };
+        assert_eq!(calculate_shares(&traits), Uint128::new(160)); // 100 + 20 + 10 + 30
+        
+        // With substrate multiplier
+        let traits = TraitExtension {
+            cap: 1,
+            stem: 1,
+            spores: 1,
+            substrate: 2,
+        };
+        assert_eq!(calculate_shares(&traits), Uint128::new(390)); // (100 + 30) * 3
+        
+        // Negative traits
+        let traits = TraitExtension {
+            cap: -2,
+            stem: -1,
+            spores: -3,
+            substrate: 0,
+        };
+        assert_eq!(calculate_shares(&traits), Uint128::new(40)); // 100 - 20 - 10 - 30
+    }
+
+    #[test]
+    fn test_spin_insufficient_funds() {
+        let mut deps = mock_dependencies();
+        setup_contract(deps.as_mut()).unwrap();
+        
+        let msg = ExecuteMsg::Spin {
+            token_id: "1".to_string(),
+            trait_target: TraitTarget::Cap,
+        };
+        
+        // Send insufficient payment
+        let info = mock_info(OWNER, &coins(500_000, PAYMENT_DENOM));
+        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        
+        assert!(matches!(err, ContractError::InsufficientFunds {}));
+    }
+
+    #[test]
+    fn test_spin_invalid_payment_denom() {
+        let mut deps = mock_dependencies();
+        setup_contract(deps.as_mut()).unwrap();
+        
+        let msg = ExecuteMsg::Spin {
+            token_id: "1".to_string(),
+            trait_target: TraitTarget::Cap,
+        };
+        
+        // Send wrong denom
+        let info = mock_info(OWNER, &coins(1_000_000, "wrong_denom"));
+        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        
+        assert!(matches!(err, ContractError::InvalidPayment {}));
+    }
+
+    #[test]
+    fn test_spin_success() {
+        let mut deps = mock_dependencies();
+        setup_contract(deps.as_mut()).unwrap();
+        
+        // Set up mock querier with NFT
+        let traits = TraitExtension {
+            cap: 0,
+            stem: 0,
+            spores: 0,
+            substrate: 0,
+        };
+        deps.querier = mock_querier_with_nft("1", OWNER, traits);
+        
+        let msg = ExecuteMsg::Spin {
+            token_id: "1".to_string(),
+            trait_target: TraitTarget::Cap,
+        };
+        
+        let info = mock_info(OWNER, &coins(1_000_000, PAYMENT_DENOM));
+        let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+        
+        // Should have update message
+        assert_eq!(res.messages.len(), 1);
+        assert_eq!(res.attributes[0].value, "spin");
+        
+        // Check global state updated
+        let global_state = GLOBAL_STATE.load(deps.as_ref().storage).unwrap();
+        assert_eq!(global_state.spin_nonce, 1);
+    }
+
+    #[test]
+    fn test_harvest_unauthorized() {
+        let mut deps = mock_dependencies();
+        setup_contract(deps.as_mut()).unwrap();
+        
+        // Set up mock querier with NFT owned by different user
+        let traits = TraitExtension::default();
+        deps.querier = mock_querier_with_nft("1", "different_owner", traits);
+        
+        let msg = ExecuteMsg::Harvest {
+            token_id: "1".to_string(),
+        };
+        
+        let info = mock_info(OWNER, &[]);
+        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        
+        assert!(matches!(err, ContractError::Unauthorized {}));
+    }
+
+    #[test]
+    fn test_harvest_no_rewards() {
+        let mut deps = mock_dependencies();
+        setup_contract(deps.as_mut()).unwrap();
+        
+        let traits = TraitExtension::default();
+        deps.querier = mock_querier_with_nft("1", OWNER, traits);
+        
+        // Create token info with no rewards
+        TOKEN_INFO.save(
+            deps.as_mut().storage,
+            "1",
+            &TokenInfo {
+                current_shares: Uint128::new(100),
+                reward_debt: Uint128::zero(),
+                pending_rewards: Uint128::zero(),
+            },
+        ).unwrap();
+        
+        let msg = ExecuteMsg::Harvest {
+            token_id: "1".to_string(),
+        };
+        
+        let info = mock_info(OWNER, &[]);
+        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        
+        assert!(matches!(err, ContractError::NoRewards {}));
+    }
+
+    #[test]
+    fn test_ascend_not_max_level() {
+        let mut deps = mock_dependencies();
+        setup_contract(deps.as_mut()).unwrap();
+        
+        // Traits not at max
+        let traits = TraitExtension {
+            cap: 2,
+            stem: 3,
+            spores: 3,
+            substrate: 0,
+        };
+        deps.querier = mock_querier_with_nft("1", OWNER, traits);
+        
+        let msg = ExecuteMsg::Ascend {
+            token_id: "1".to_string(),
+        };
+        
+        let info = mock_info(OWNER, &[]);
+        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        
+        assert!(matches!(err, ContractError::NotMaxLevel {}));
+    }
+
+    #[test]
+    fn test_ascend_max_substrate() {
+        let mut deps = mock_dependencies();
+        setup_contract(deps.as_mut()).unwrap();
+        
+        // Already at max substrate
+        let traits = TraitExtension {
+            cap: 3,
+            stem: 3,
+            spores: 3,
+            substrate: 4,
+        };
+        deps.querier = mock_querier_with_nft("1", OWNER, traits);
+        
+        let msg = ExecuteMsg::Ascend {
+            token_id: "1".to_string(),
+        };
+        
+        let info = mock_info(OWNER, &[]);
+        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        
+        assert!(matches!(err, ContractError::MaxSubstrate {}));
+    }
+
+    #[test]
+    fn test_query_token_info() {
+        let mut deps = mock_dependencies();
+        setup_contract(deps.as_mut()).unwrap();
+        
+        // Save token info
+        let token_info = TokenInfo {
+            current_shares: Uint128::new(150),
+            reward_debt: Uint128::new(50),
+            pending_rewards: Uint128::new(100),
+        };
+        TOKEN_INFO.save(deps.as_mut().storage, "1", &token_info).unwrap();
+        
+        // Query token info
+        let query_msg = QueryMsg::TokenInfo {
+            token_id: "1".to_string(),
+        };
+        let res = query(deps.as_ref(), mock_env(), query_msg).unwrap();
+        let queried_info: Option<TokenInfo> = from_json(&res).unwrap();
+        
+        assert!(queried_info.is_some());
+        let info = queried_info.unwrap();
+        assert_eq!(info.current_shares, Uint128::new(150));
+        assert_eq!(info.pending_rewards, Uint128::new(100));
+    }
+
+    #[test]
+    fn test_randomness_generation() {
+        let mut deps = mock_dependencies();
+        setup_contract(deps.as_mut()).unwrap();
+        
+        let env = mock_env();
+        
+        // Generate multiple random values
+        let random1 = get_randomness(&env, &deps.as_mut(), 0).unwrap();
+        let random2 = get_randomness(&env, &deps.as_mut(), 1).unwrap();
+        let random3 = get_randomness(&env, &deps.as_mut(), 2).unwrap();
+        
+        // Values should be different due to different nonces
+        assert_ne!(random1, random2);
+        assert_ne!(random2, random3);
+        
+        // All values should be in valid range (0-255)
+        assert!(random1 <= 255);
+        assert!(random2 <= 255);
+        assert!(random3 <= 255);
+    }
+}

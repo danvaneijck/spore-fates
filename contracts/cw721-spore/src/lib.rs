@@ -118,3 +118,199 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 }
 
 use cosmwasm_std::Empty;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
+    use cosmwasm_std::{from_json, Addr};
+    use cw721::{Cw721Query, NftInfoResponse, OwnerOfResponse};
+
+    const MINTER: &str = "minter";
+    const USER: &str = "user";
+
+    fn setup_contract(deps: DepsMut) -> Result<Response, ContractError> {
+        let msg = InstantiateMsg {
+            name: "SporeFates".to_string(),
+            symbol: "SPORE".to_string(),
+            minter: MINTER.to_string(),
+        };
+        let info = mock_info(MINTER, &[]);
+        instantiate(deps, mock_env(), info, msg)
+    }
+
+    fn mint_token(deps: DepsMut, token_id: &str, owner: &str) -> Result<Response, ContractError> {
+        let msg = ExecuteMsg::Cw721(cw721_base::ExecuteMsg::Mint {
+            token_id: token_id.to_string(),
+            owner: owner.to_string(),
+            token_uri: None,
+            extension: Some(TraitExtension {
+                cap: 0,
+                stem: 0,
+                spores: 0,
+                substrate: 0,
+            }),
+        });
+        let info = mock_info(MINTER, &[]);
+        execute(deps, mock_env(), info, msg)
+    }
+
+    #[test]
+    fn test_instantiate() {
+        let mut deps = mock_dependencies();
+        let res = setup_contract(deps.as_mut()).unwrap();
+        
+        assert_eq!(res.messages.len(), 0);
+        
+        // Query contract info
+        let base_contract = Cw721Contract::<Extension, Empty, Empty, Empty>::default();
+        let info = base_contract.contract_info(deps.as_ref().storage).unwrap();
+        
+        assert_eq!(info.name, "SporeFates");
+        assert_eq!(info.symbol, "SPORE");
+    }
+
+    #[test]
+    fn test_mint_token() {
+        let mut deps = mock_dependencies();
+        setup_contract(deps.as_mut()).unwrap();
+        
+        let res = mint_token(deps.as_mut(), "1", USER).unwrap();
+        assert_eq!(res.messages.len(), 0);
+        
+        // Query owner
+        let query_msg = QueryMsg::Cw721(cw721::Cw721QueryMsg::OwnerOf {
+            token_id: "1".to_string(),
+            include_expired: None,
+        });
+        let res = query(deps.as_ref(), mock_env(), query_msg).unwrap();
+        let owner: OwnerOfResponse = from_json(&res).unwrap();
+        assert_eq!(owner.owner, USER);
+    }
+
+    #[test]
+    fn test_update_traits_by_minter() {
+        let mut deps = mock_dependencies();
+        setup_contract(deps.as_mut()).unwrap();
+        mint_token(deps.as_mut(), "1", USER).unwrap();
+        
+        let new_traits = TraitExtension {
+            cap: 2,
+            stem: -1,
+            spores: 3,
+            substrate: 1,
+        };
+        
+        let msg = ExecuteMsg::UpdateTraits {
+            token_id: "1".to_string(),
+            traits: new_traits.clone(),
+        };
+        let info = mock_info(MINTER, &[]);
+        let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+        
+        assert_eq!(res.attributes.len(), 5);
+        assert_eq!(res.attributes[0].value, "update_traits");
+        
+        // Query updated traits
+        let query_msg = QueryMsg::Cw721(cw721::Cw721QueryMsg::NftInfo {
+            token_id: "1".to_string(),
+        });
+        let res = query(deps.as_ref(), mock_env(), query_msg).unwrap();
+        let nft_info: NftInfoResponse<TraitExtension> = from_json(&res).unwrap();
+        
+        let traits = nft_info.extension.unwrap();
+        assert_eq!(traits.cap, 2);
+        assert_eq!(traits.stem, -1);
+        assert_eq!(traits.spores, 3);
+        assert_eq!(traits.substrate, 1);
+    }
+
+    #[test]
+    fn test_update_traits_unauthorized() {
+        let mut deps = mock_dependencies();
+        setup_contract(deps.as_mut()).unwrap();
+        mint_token(deps.as_mut(), "1", USER).unwrap();
+        
+        let new_traits = TraitExtension {
+            cap: 1,
+            stem: 1,
+            spores: 1,
+            substrate: 0,
+        };
+        
+        let msg = ExecuteMsg::UpdateTraits {
+            token_id: "1".to_string(),
+            traits: new_traits,
+        };
+        
+        // Try to update from non-minter
+        let info = mock_info(USER, &[]);
+        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        
+        assert!(matches!(err, ContractError::Unauthorized {}));
+    }
+
+    #[test]
+    fn test_invalid_trait_values() {
+        let mut deps = mock_dependencies();
+        setup_contract(deps.as_mut()).unwrap();
+        mint_token(deps.as_mut(), "1", USER).unwrap();
+        
+        // Test cap out of range
+        let invalid_traits = TraitExtension {
+            cap: 4, // Invalid: max is 3
+            stem: 0,
+            spores: 0,
+            substrate: 0,
+        };
+        
+        let msg = ExecuteMsg::UpdateTraits {
+            token_id: "1".to_string(),
+            traits: invalid_traits,
+        };
+        let info = mock_info(MINTER, &[]);
+        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        
+        assert!(matches!(err, ContractError::InvalidTrait { .. }));
+        
+        // Test substrate out of range
+        let invalid_traits = TraitExtension {
+            cap: 0,
+            stem: 0,
+            spores: 0,
+            substrate: 5, // Invalid: max is 4
+        };
+        
+        let msg = ExecuteMsg::UpdateTraits {
+            token_id: "1".to_string(),
+            traits: invalid_traits,
+        };
+        let info = mock_info(MINTER, &[]);
+        let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
+        
+        assert!(matches!(err, ContractError::InvalidTrait { .. }));
+    }
+
+    #[test]
+    fn test_transfer_token() {
+        let mut deps = mock_dependencies();
+        setup_contract(deps.as_mut()).unwrap();
+        mint_token(deps.as_mut(), "1", USER).unwrap();
+        
+        let msg = ExecuteMsg::Cw721(cw721_base::ExecuteMsg::TransferNft {
+            recipient: "new_owner".to_string(),
+            token_id: "1".to_string(),
+        });
+        let info = mock_info(USER, &[]);
+        execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+        
+        // Query new owner
+        let query_msg = QueryMsg::Cw721(cw721::Cw721QueryMsg::OwnerOf {
+            token_id: "1".to_string(),
+            include_expired: None,
+        });
+        let res = query(deps.as_ref(), mock_env(), query_msg).unwrap();
+        let owner: OwnerOfResponse = from_json(&res).unwrap();
+        assert_eq!(owner.owner, "new_owner");
+    }
+}

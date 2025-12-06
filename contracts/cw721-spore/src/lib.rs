@@ -1,5 +1,5 @@
 use cosmwasm_std::{
-    entry_point, to_json_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult,
+    entry_point, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult,
 };
 use cw721_base::Cw721Contract;
 
@@ -81,10 +81,10 @@ fn execute_update_traits(
 ) -> Result<Response, ContractError> {
     let base_contract = Cw721Contract::<Extension, Empty, Empty, Empty>::default();
     
-    // Get minter using the method (not field)
-    let minter = base_contract.minter(deps.as_ref())?;
+    // Get minter using the method and extract the address
+    let minter_response = base_contract.minter(deps.as_ref())?;
     
-    if info.sender != minter {
+    if info.sender != minter_response.minter {
         return Err(ContractError::Unauthorized {});
     }
     

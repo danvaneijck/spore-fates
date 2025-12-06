@@ -65,7 +65,7 @@ pub fn execute(
 }
 
 /// Get randomness using Pyth price feed + block data
-fn get_randomness(env: &Env, deps: &DepsMut, nonce: u64) -> Result<u8, ContractError> {
+fn get_randomness(env: &Env, _deps: &DepsMut, nonce: u64) -> Result<u8, ContractError> {
     let mut hasher = Sha256::new();
     
     // Add block time (nanoseconds)
@@ -101,7 +101,7 @@ fn calculate_shares(traits: &TraitExtension) -> Uint128 {
 }
 
 fn execute_spin(
-    mut deps: DepsMut,
+    deps: DepsMut,
     env: Env,
     info: MessageInfo,
     token_id: String,
@@ -385,6 +385,13 @@ fn execute_ascend(
     
     let success = random % 5 == 0; // 20% chance
     
+    // Capture substrate value before modifying traits
+    let new_substrate = if success {
+        traits.substrate + 1
+    } else {
+        traits.substrate
+    };
+    
     if success {
         traits.substrate += 1;
     }
@@ -423,7 +430,7 @@ fn execute_ascend(
         .add_attribute("action", "ascend")
         .add_attribute("token_id", token_id)
         .add_attribute("success", success.to_string())
-        .add_attribute("new_substrate", traits.substrate.to_string()))
+        .add_attribute("new_substrate", new_substrate.to_string()))
 }
 
 #[entry_point]
@@ -480,13 +487,13 @@ mod tests {
             match query {
                 CosmWasmQuery::Smart { contract_addr, msg } => {
                     if contract_addr == CW721_CONTRACT {
-                        let parsed: cw721::Cw721QueryMsg<cosmwasm_std::Empty> = from_json(msg).unwrap();
+                        let parsed: cw721::Cw721QueryMsg = from_json(msg).unwrap();
                         match parsed {
                             cw721::Cw721QueryMsg::NftInfo { token_id: query_token_id } => {
                                 if query_token_id == token_id {
                                     let response = NftInfoResponse {
                                         token_uri: None,
-                                        extension: traits.clone(),
+                                        extension: traits,
                                     };
                                     SystemResult::Ok(to_json_binary(&response).into())
                                 } else {

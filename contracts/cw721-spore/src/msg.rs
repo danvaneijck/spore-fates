@@ -1,5 +1,4 @@
 use cosmwasm_schema::cw_serde;
-use cw721_base::{ExecuteMsg as Cw721ExecuteMsg, QueryMsg as Cw721QueryMsg};
 
 #[cw_serde]
 pub struct InstantiateMsg {

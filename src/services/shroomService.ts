@@ -43,10 +43,6 @@ export const shroomService = {
             );
 
             const data = JSON.parse(new TextDecoder().decode(response.data));
-
-            // Map the response to our interface
-            // Note: Rust i8 comes back as number in JSON
-            console.log(data);
             return data.extension;
         } catch (error) {
             console.error("Error fetching traits:", error);
@@ -122,6 +118,7 @@ export const shroomService = {
 
             return data;
         } catch (error) {
+            console.error(error);
             // Silently fail if token doesn't exist in game controller yet
             return null;
         }

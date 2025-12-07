@@ -2,7 +2,7 @@ import { ChainId } from "@injectivelabs/ts-types";
 
 // Configuration for Testnet
 export const NETWORK_CONFIG = {
-    network: import.meta.env.VITE_NETWORK == "testnet",
+    network: import.meta.env.VITE_NETWORK ?? "testnet",
     chainId:
         import.meta.env.VITE_NETWORK == "testnet"
             ? ChainId.Testnet

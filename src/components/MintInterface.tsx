@@ -13,7 +13,7 @@ export const MintInterface: React.FC<MintInterfaceProps> = ({
 }) => {
   return (
     <div className="max-w-4xl mx-auto">
-      <div className="bg-surface rounded-3xl p-12 border border-border shadow-xl">
+      <div className="bg-surface rounded-3xl p-4 md:p-12 border border-border shadow-xl">
         {/* Header */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-primary to-primary/60 rounded-2xl mb-6 shadow-lg shadow-primary/30">
@@ -36,7 +36,7 @@ export const MintInterface: React.FC<MintInterfaceProps> = ({
               Each mushroom is a one-of-a-kind digital collectible
             </p>
           </div>
-          
+
           <div className="bg-background rounded-xl p-6 border border-border/50">
             <div className="text-3xl mb-2">🎲</div>
             <h3 className="text-sm font-semibold text-text mb-1">Random Traits</h3>
@@ -44,7 +44,7 @@ export const MintInterface: React.FC<MintInterfaceProps> = ({
               Start with randomized cap, stem, and spore values
             </p>
           </div>
-          
+
           <div className="bg-background rounded-xl p-6 border border-border/50">
             <div className="text-3xl mb-2">⚡</div>
             <h3 className="text-sm font-semibold text-text mb-1">Evolve & Earn</h3>
@@ -58,7 +58,7 @@ export const MintInterface: React.FC<MintInterfaceProps> = ({
         <div className="relative">
           {/* Glow effect */}
           <div className="absolute inset-0 bg-gradient-to-r from-primary via-secondary to-accent opacity-20 blur-2xl rounded-2xl" />
-          
+
           <button
             onClick={onMint}
             disabled={isLoading}
@@ -67,7 +67,7 @@ export const MintInterface: React.FC<MintInterfaceProps> = ({
             {/* Button background with gradient border */}
             <div className="absolute inset-0 bg-gradient-to-r from-primary via-secondary to-accent rounded-2xl opacity-100 group-hover:opacity-90 transition-opacity" />
             <div className="absolute inset-[2px] bg-gradient-to-br from-surface to-background rounded-2xl" />
-            
+
             {/* Button content */}
             <div className="relative px-8 py-6 flex items-center justify-between">
               <div className="flex items-center gap-4">
@@ -78,7 +78,7 @@ export const MintInterface: React.FC<MintInterfaceProps> = ({
                     <Sparkles size={24} className="text-white" />
                   </div>
                 )}
-                
+
                 <div className="text-left">
                   <div className="text-2xl font-bold text-text group-hover:text-primary transition-colors">
                     {isLoading ? 'Minting...' : 'Mint Mushroom'}

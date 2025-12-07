@@ -65,7 +65,7 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
     if (!tokenId) return;
     const msg = shroomService.makeSpinMsg(address, tokenId, target);
     const result = await executeTransaction(msg, 'spin');
-    
+
     if (result) {
       const parsed = parseSpinResult(result);
       if (parsed) {
@@ -92,20 +92,20 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
   const handleWheelComplete = () => {
     setShowWheel(false);
     setSpinResult(null);
-    
+
     // Apply pending trait update if we have one
     if (pendingTraitUpdate) {
       setTraits(pendingTraitUpdate);
       setPendingTraitUpdate(null);
     }
-    
+
     // Trigger a refresh to ensure we have the latest data
     setRefreshTrigger(prev => prev + 1);
   };
 
   if (!tokenId) {
     return (
-      <div className="bg-surface rounded-3xl p-12 border border-border text-center h-full flex items-center justify-center min-h-[600px]">
+      <div className="bg-surface rounded-3xl p-4 md:p-12 border border-border text-center h-full flex items-center justify-center min-h-[600px]">
         <div>
           <Sprout size={64} className="text-primary mx-auto mb-4 opacity-50" />
           <h3 className="text-2xl font-bold text-text mb-2">Select a Mushroom</h3>
@@ -128,7 +128,7 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
         pendingRewards={displayRewards}
         isLoading={isLoading}
       />
-      
+
       {spinResult && (
         <SpinWheel
           isSpinning={showWheel}
@@ -151,10 +151,10 @@ function App() {
     setIsLoading(true);
     const toastId = showTransactionToast.loading(
       actionType === 'spin' ? 'Spinning the wheel...' :
-      actionType === 'harvest' ? 'Harvesting rewards...' :
-      actionType === 'ascend' ? 'Attempting ascension...' :
-      actionType === 'mint' ? 'Minting mushroom...' :
-      'Processing transaction...'
+        actionType === 'harvest' ? 'Harvesting rewards...' :
+          actionType === 'ascend' ? 'Attempting ascension...' :
+            actionType === 'mint' ? 'Minting mushroom...' :
+              'Processing transaction...'
     );
 
     try {
@@ -178,10 +178,10 @@ function App() {
       showTransactionToast.success(
         result.txHash,
         actionType === 'spin' ? 'Spin successful!' :
-        actionType === 'harvest' ? 'Rewards harvested!' :
-        actionType === 'ascend' ? 'Ascension complete!' :
-        actionType === 'mint' ? 'Mushroom minted!' :
-        'Transaction successful!'
+          actionType === 'harvest' ? 'Rewards harvested!' :
+            actionType === 'ascend' ? 'Ascension complete!' :
+              actionType === 'mint' ? 'Mushroom minted!' :
+                'Transaction successful!'
       );
 
       await new Promise(resolve => setTimeout(resolve, 3000));
@@ -259,10 +259,12 @@ function App() {
               A strategy GameFi experience on Injective. Roll traits, harvest rewards, and ascend to prestige levels.
             </p>
 
-            <div className="flex justify-center mb-8">
+            <div className="flex justify-center mb-4">
               <WalletConnect onAddressChange={setAddress} />
             </div>
           </div>
+
+
 
           {/* Main Content Grid - Fixed column widths */}
           <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-8 items-start">
@@ -277,8 +279,8 @@ function App() {
             )}
 
             {/* Right Column - Game/Mint Interface (Flexible) */}
-            <div className="flex-1 min-h-[600px]">
-              {address ? (
+            {address && (
+              <div className="flex-1 min-h-[600px] mb-10">
                 <Routes>
                   <Route path="/play/:tokenId" element={
                     <GameContainer
@@ -290,7 +292,7 @@ function App() {
                     />
                   } />
                   <Route path="*" element={
-                    <div className="bg-surface rounded-3xl p-12 border border-border text-center h-full flex items-center justify-center min-h-[600px]">
+                    <div className="bg-surface rounded-3xl p-4 md:p-12 border border-border text-center h-full flex items-center justify-center min-h-[600px]">
                       <div>
                         <Sprout size={64} className="text-primary mx-auto mb-4 opacity-50" />
                         <p className="text-textSecondary text-lg">Select a mushroom from your colony to start playing</p>
@@ -298,11 +300,16 @@ function App() {
                     </div>
                   } />
                 </Routes>
-              ) : (
-                <MintInterface onMint={handleMint} isLoading={isLoading} />
-              )}
-            </div>
+
+              </div>
+            )}
           </div>
+
+          <div className=''>
+            <MintInterface onMint={handleMint} isLoading={isLoading} />
+
+          </div>
+
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-12">
             <div className="bg-surface rounded-2xl p-6 border border-border">

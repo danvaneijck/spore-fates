@@ -4,6 +4,7 @@ import { WalletStrategy } from '@injectivelabs/wallet-strategy';
 import { Wallet as WalletType } from '@injectivelabs/wallet-base';
 import { ChainId } from '@injectivelabs/ts-types';
 import { getInjectiveAddress } from '@injectivelabs/sdk-ts';
+import { useNavigate } from 'react-router-dom';
 
 interface WalletConnectProps {
   onAddressChange: (address: string) => void;
@@ -19,6 +20,7 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onAddressChange })
   const [address, setAddress] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
   const [showWalletMenu, setShowWalletMenu] = useState(false);
+  const navigate = useNavigate()
 
   const wallets = [
     { type: WalletType.Keplr, name: 'Keplr', icon: '🔐' },
@@ -52,6 +54,7 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onAddressChange })
   const disconnect = () => {
     setAddress('');
     onAddressChange('');
+    navigate("/")
   };
 
   const formatAddress = (addr: string) => {

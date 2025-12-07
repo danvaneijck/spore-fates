@@ -22,61 +22,34 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
 
   useEffect(() => {
     if (isSpinning) {
-      console.log('🎲 SPIN DEBUG:', {
-        oldValue,
-        newValue,
-        change: newValue - oldValue,
-        traitTarget
-      });
-      
+
       setShowResult(false);
-      
+
       // Segments array: [-3, -2, -1, 0, 1, 2, 3]
       const segments = [-3, -2, -1, 0, 1, 2, 3];
       const segmentAngle = 360 / 7; // ~51.43 degrees per segment
-      
+
       // Find which segment index corresponds to newValue
       const targetIndex = segments.indexOf(newValue);
-      
-      console.log('🎯 TARGET:', {
-        newValue,
-        targetIndex,
-        segmentAngle,
-        segments
-      });
-      
+
       if (targetIndex === -1) {
         console.error('❌ Invalid newValue:', newValue);
         return;
       }
-      
+
       // Calculate the angle to land in the CENTER of the target segment
       const centerOffset = segmentAngle / 2;
       const targetAngle = (targetIndex * segmentAngle) + centerOffset;
-      
-      console.log('📐 ROTATION:', {
-        targetAngle,
-        centerOffset,
-        calculation: `${targetIndex} * ${segmentAngle} + ${centerOffset}`
-      });
-      
+
       // Add 5 full rotations for dramatic effect
       // NEGATIVE rotation = counter-clockwise
       const spins = 5;
       const finalRotation = -((spins * 360) + targetAngle);
-      
-      console.log('🔄 FINAL:', {
-        spins,
-        finalRotation,
-        direction: 'counter-clockwise',
-        willLandOn: segments[targetIndex]
-      });
-      
+
       // Set up transitionend listener BEFORE triggering rotation
       const handleTransitionEnd = (e: TransitionEvent) => {
         // Only respond to transform transitions on the wheel itself
         if (e.propertyName === 'transform' && e.target === wheelRef.current) {
-          console.log('✅ Animation completed, showing result');
           setShowResult(true);
           wheelRef.current?.removeEventListener('transitionend', handleTransitionEnd);
         }
@@ -133,13 +106,13 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
   const getSegmentColor = (segmentValue: number) => {
     // Calculate what the change would be if we landed on this segment
     const potentialChange = segmentValue - oldValue;
-    
+
     if (potentialChange > 0) {
-      return 'rgba(16, 185, 129, 0.85)'; // green
+      return 'rgba(16, 185, 129, 1)'; // green
     } else if (potentialChange < 0) {
-      return 'rgba(239, 68, 68, 0.85)'; // red
+      return 'rgba(239, 68, 68, 1)'; // red
     } else {
-      return 'rgba(163, 163, 163, 0.6)'; // neutral
+      return 'rgba(163, 163, 163, 1)'; // neutral
     }
   };
 
@@ -156,17 +129,17 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
     const startAngle = ((index * segmentAngle) - 90) * (Math.PI / 180);
     const endAngle = (((index + 1) * segmentAngle) - 90) * (Math.PI / 180);
     const radius = 128; // Half of 256px wheel size
-    
+
     const x1 = 128 + radius * Math.cos(startAngle);
     const y1 = 128 + radius * Math.sin(startAngle);
     const x2 = 128 + radius * Math.cos(endAngle);
     const y2 = 128 + radius * Math.sin(endAngle);
-    
+
     return `M 128 128 L ${x1} ${y1} A ${radius} ${radius} 0 0 1 ${x2} ${y2} Z`;
   };
 
   return (
-    <div 
+    <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
       onClick={handleBackdropClick}
     >
@@ -188,7 +161,7 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
           <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-6 z-30">
             <div className="relative">
               {/* Pointer triangle */}
-              <div 
+              <div
                 className="w-0 h-0 border-l-[16px] border-r-[16px] border-t-[24px] border-l-transparent border-r-transparent border-t-white drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)]"
               />
               {/* Pointer glow effect */}
@@ -233,7 +206,7 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
                   }}
                 >
                   <div className="w-full h-1/2 flex items-start justify-center pt-6">
-                    <span 
+                    <span
                       className="text-white font-bold text-2xl"
                       style={{
                         filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.8))',
@@ -257,7 +230,7 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
 
           {/* Landing indicator - shows after spin */}
           {showResult && (
-            <div 
+            <div
               className="absolute top-0 left-1/2 -translate-x-1/2 translate-y-8 z-20 pointer-events-none"
             >
               <div className="w-1 h-16 bg-white/80 rounded-full shadow-lg" />
@@ -273,7 +246,7 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
                 <h3 className="text-2xl font-bold text-text mb-4 capitalize">
                   {traitTarget} Mutation
                 </h3>
-                
+
                 <div className="flex items-center justify-center gap-4 mb-4">
                   <div className="text-center">
                     <div className="text-sm text-textSecondary mb-1">Old</div>

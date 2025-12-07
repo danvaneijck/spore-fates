@@ -76,10 +76,10 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
   const segments = [-3, -2, -1, 0, 1, 2, 3];
   const segmentAngle = 360 / 7;
 
+  // Simplified binary color scheme: red for decrease, green for increase
   const getSegmentColor = (value: number) => {
-    if (value > 0) return 'rgba(16, 185, 129, 0.3)'; // success/green
-    if (value < 0) return 'rgba(239, 68, 68, 0.3)'; // error/red
-    return 'rgba(163, 163, 163, 0.2)'; // neutral/gray
+    if (value > 0) return 'rgba(16, 185, 129, 0.4)'; // green for positive
+    return 'rgba(239, 68, 68, 0.4)'; // red for negative and zero
   };
 
   const handleBackdropClick = (e: React.MouseEvent) => {
@@ -112,7 +112,7 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
         {showResult && (
           <button
             onClick={onComplete}
-            className="absolute -top-12 right-0 p-2 bg-surface/90 hover:bg-surface rounded-full border border-border transition-colors z-10"
+            className="absolute -top-12 right-0 p-2 bg-surface/90 hover:bg-surface rounded-full border border-border transition-colors z-50"
             aria-label="Close"
           >
             <X size={24} className="text-text" />
@@ -222,9 +222,9 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
           )}
         </div>
 
-        {/* Result Display */}
+        {/* Result Display - Higher z-index than pointer */}
         {showResult && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40">
             <div className="bg-surface/95 backdrop-blur-sm rounded-3xl p-8 border-2 border-primary shadow-2xl animate-scale-in pointer-events-auto">
               <div className="text-center">
                 <h3 className="text-2xl font-bold text-text mb-4 capitalize">

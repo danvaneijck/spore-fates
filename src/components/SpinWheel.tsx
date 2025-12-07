@@ -50,9 +50,8 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
       }
       
       // Calculate the angle to land in the CENTER of the target segment
-      // Wheel starts with segment 0 (-3) at the top (0 degrees)
-      // Each segment is segmentAngle degrees wide
-      // We want to land in the CENTER of the target segment
+      // Since we're rotating counter-clockwise (negative), we need to calculate
+      // how far to rotate to bring the target segment under the pointer
       const centerOffset = segmentAngle / 2;
       const targetAngle = (targetIndex * segmentAngle) + centerOffset;
       
@@ -63,12 +62,14 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
       });
       
       // Add 5 full rotations for dramatic effect
+      // NEGATIVE rotation = counter-clockwise = brings segments UP to the pointer
       const spins = 5;
-      const finalRotation = (spins * 360) + targetAngle;
+      const finalRotation = -((spins * 360) + targetAngle);
       
       console.log('🔄 FINAL:', {
         spins,
         finalRotation,
+        direction: 'counter-clockwise',
         willLandOn: segments[targetIndex]
       });
       
@@ -116,15 +117,12 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
     
     if (potentialChange > 0) {
       // Landing here would be an improvement
-      console.log(`✅ Segment ${segmentValue}: ${oldValue} → ${segmentValue} = +${potentialChange} = GREEN`);
       return 'rgba(16, 185, 129, 0.85)'; // green
     } else if (potentialChange < 0) {
       // Landing here would be a degradation
-      console.log(`❌ Segment ${segmentValue}: ${oldValue} → ${segmentValue} = ${potentialChange} = RED`);
       return 'rgba(239, 68, 68, 0.85)'; // red
     } else {
       // No change
-      console.log(`⚪ Segment ${segmentValue}: ${oldValue} → ${segmentValue} = 0 = NEUTRAL`);
       return 'rgba(163, 163, 163, 0.6)'; // neutral
     }
   };

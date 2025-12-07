@@ -30,6 +30,7 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
   // Spin wheel state
   const [spinResult, setSpinResult] = useState<SpinResult | null>(null);
   const [showWheel, setShowWheel] = useState(false);
+  const [pendingTraitUpdate, setPendingTraitUpdate] = useState<TraitExtension | null>(null);
 
   useEffect(() => {
     if (!address || !tokenId) {
@@ -39,7 +40,15 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
 
     const fetchData = async () => {
       const traitData = await shroomService.getShroomTraits(tokenId);
-      if (traitData) setTraits(traitData);
+      if (traitData) {
+        // Only update traits if we don't have a pending update (wheel is not showing)
+        if (!showWheel) {
+          setTraits(traitData);
+        } else {
+          // Store the new traits to apply after wheel is dismissed
+          setPendingTraitUpdate(traitData);
+        }
+      }
 
       const rewards = await shroomService.getPendingRewards(tokenId);
       setPendingRewards(rewards);
@@ -49,7 +58,7 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
     };
 
     fetchData();
-  }, [address, tokenId, refreshTrigger]);
+  }, [address, tokenId, refreshTrigger, showWheel]);
 
   const onSpin = async (target) => {
     if (!tokenId) return;
@@ -82,6 +91,15 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
   const handleWheelComplete = () => {
     setShowWheel(false);
     setSpinResult(null);
+    
+    // Apply pending trait update if we have one
+    if (pendingTraitUpdate) {
+      setTraits(pendingTraitUpdate);
+      setPendingTraitUpdate(null);
+    }
+    
+    // Trigger a refresh to ensure we have the latest data
+    setRefreshTrigger(prev => prev + 1);
   };
 
   if (!tokenId) {

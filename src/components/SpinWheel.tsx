@@ -18,13 +18,27 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
 }) => {
   const [rotation, setRotation] = useState(0);
   const [showResult, setShowResult] = useState(false);
+  const [landingSegment, setLandingSegment] = useState(0);
 
   useEffect(() => {
     if (isSpinning) {
       setShowResult(false);
-      // Spin animation: 5 full rotations + landing position
+      
+      // Calculate which segment we land on based on new value
+      // Segments: [-3, -2, -1, 0, 1, 2, 3]
+      const segments = [-3, -2, -1, 0, 1, 2, 3];
+      const targetIndex = segments.indexOf(newValue);
+      
+      // Calculate rotation to land on target segment
+      // Each segment is 360/7 degrees, we want to land in the middle of the segment
+      const segmentAngle = 360 / 7;
+      const targetAngle = targetIndex * segmentAngle + (segmentAngle / 2);
+      
+      // Add 5 full rotations for spin effect
       const spins = 5;
-      const finalRotation = spins * 360 + (Math.random() * 360);
+      const finalRotation = spins * 360 + targetAngle;
+      
+      setLandingSegment(targetIndex);
       setRotation(finalRotation);
 
       // Show result after spin completes
@@ -32,20 +46,20 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
         setShowResult(true);
       }, 3000);
     }
-  }, [isSpinning]);
+  }, [isSpinning, newValue]);
 
   if (!isSpinning && !showResult) return null;
 
   const getTraitColor = () => {
     switch (traitTarget) {
       case 'cap':
-        return 'from-primary to-primary/60';
+        return { primary: '#9E7FFF', secondary: '#7C5FCC' };
       case 'stem':
-        return 'from-secondary to-secondary/60';
+        return { primary: '#38bdf8', secondary: '#0ea5e9' };
       case 'spores':
-        return 'from-accent to-accent/60';
+        return { primary: '#f472b6', secondary: '#ec4899' };
       default:
-        return 'from-primary to-primary/60';
+        return { primary: '#9E7FFF', secondary: '#7C5FCC' };
     }
   };
 
@@ -56,16 +70,36 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
   };
 
   const change = newValue - oldValue;
+  const colors = getTraitColor();
 
   // Segments: [-3, -2, -1, 0, 1, 2, 3]
-  // Success zone: positive values (1, 2, 3) - indices 4, 5, 6
-  // Fail zone: negative values (-3, -2, -1) - indices 0, 1, 2
-  // Neutral: 0 - index 3
+  const segments = [-3, -2, -1, 0, 1, 2, 3];
+  const segmentAngle = 360 / 7;
+
+  const getSegmentColor = (value: number) => {
+    if (value > 0) return 'rgba(16, 185, 129, 0.3)'; // success/green
+    if (value < 0) return 'rgba(239, 68, 68, 0.3)'; // error/red
+    return 'rgba(163, 163, 163, 0.2)'; // neutral/gray
+  };
 
   const handleBackdropClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget && showResult) {
       onComplete();
     }
+  };
+
+  // Create SVG path for a segment
+  const createSegmentPath = (index: number) => {
+    const startAngle = (index * segmentAngle - 90) * (Math.PI / 180);
+    const endAngle = ((index + 1) * segmentAngle - 90) * (Math.PI / 180);
+    const radius = 128; // Half of 256px wheel size
+    
+    const x1 = 128 + radius * Math.cos(startAngle);
+    const y1 = 128 + radius * Math.sin(startAngle);
+    const x2 = 128 + radius * Math.cos(endAngle);
+    const y2 = 128 + radius * Math.sin(endAngle);
+    
+    return `M 128 128 L ${x1} ${y1} A ${radius} ${radius} 0 0 1 ${x2} ${y2} Z`;
   };
 
   return (
@@ -85,124 +119,107 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
           </button>
         )}
 
-        {/* Spinning Wheel */}
-        <div
-          className={`w-64 h-64 rounded-full bg-gradient-to-br ${getTraitColor()} shadow-2xl flex items-center justify-center transition-transform duration-3000 ease-out relative overflow-hidden`}
-          style={{
-            transform: `rotate(${rotation}deg)`,
-            transitionDuration: isSpinning ? '3000ms' : '0ms',
-          }}
-        >
-          {/* Success/Fail Zone Overlays */}
-          <div className="absolute inset-0 rounded-full">
-            {/* Fail Zone (negative values: -3, -2, -1) - Red shade */}
-            {[-3, -2, -1].map((value, idx) => {
-              const segmentIndex = [-3, -2, -1, 0, 1, 2, 3].indexOf(value);
-              return (
-                <div
-                  key={`fail-${value}`}
-                  className="absolute inset-0"
-                  style={{
-                    transform: `rotate(${segmentIndex * (360 / 7)}deg)`,
-                  }}
-                >
-                  <div 
-                    className="w-full h-1/2 bg-error/20"
-                    style={{
-                      clipPath: 'polygon(50% 0%, 100% 100%, 0% 100%)',
-                      transformOrigin: 'bottom center',
-                    }}
-                  />
-                </div>
-              );
-            })}
-
-            {/* Success Zone (positive values: 1, 2, 3) - Green shade */}
-            {[1, 2, 3].map((value, idx) => {
-              const segmentIndex = [-3, -2, -1, 0, 1, 2, 3].indexOf(value);
-              return (
-                <div
-                  key={`success-${value}`}
-                  className="absolute inset-0"
-                  style={{
-                    transform: `rotate(${segmentIndex * (360 / 7)}deg)`,
-                  }}
-                >
-                  <div 
-                    className="w-full h-1/2 bg-success/20"
-                    style={{
-                      clipPath: 'polygon(50% 0%, 100% 100%, 0% 100%)',
-                      transformOrigin: 'bottom center',
-                    }}
-                  />
-                </div>
-              );
-            })}
-
-            {/* Neutral Zone (0) - Slight gray shade */}
-            <div
-              className="absolute inset-0"
-              style={{
-                transform: `rotate(${3 * (360 / 7)}deg)`,
-              }}
-            >
+        {/* Spinning Wheel Container */}
+        <div className="relative w-64 h-64">
+          {/* Pointer - Fixed at top */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-6 z-30">
+            <div className="relative">
+              {/* Pointer triangle */}
               <div 
-                className="w-full h-1/2 bg-textSecondary/10"
-                style={{
-                  clipPath: 'polygon(50% 0%, 100% 100%, 0% 100%)',
-                  transformOrigin: 'bottom center',
-                }}
+                className="w-0 h-0 border-l-[16px] border-r-[16px] border-t-[24px] border-l-transparent border-r-transparent border-t-white drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)]"
               />
+              {/* Pointer glow effect */}
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-8 bg-white/30 blur-xl rounded-full" />
             </div>
           </div>
 
-          {/* Wheel segments with numbers */}
-          <div className="absolute inset-0 rounded-full">
-            {[-3, -2, -1, 0, 1, 2, 3].map((value, index) => (
-              <div
-                key={value}
-                className="absolute inset-0 flex items-center justify-center"
-                style={{
-                  transform: `rotate(${index * (360 / 7)}deg)`,
-                }}
-              >
+          {/* Spinning Wheel */}
+          <div
+            className="w-64 h-64 rounded-full shadow-2xl transition-transform duration-3000 ease-out relative overflow-hidden"
+            style={{
+              transform: `rotate(${rotation}deg)`,
+              transitionDuration: isSpinning ? '3000ms' : '0ms',
+              background: `conic-gradient(from 0deg, ${colors.primary}, ${colors.secondary}, ${colors.primary})`,
+            }}
+          >
+            {/* SVG overlay for shaded segments */}
+            <svg
+              className="absolute inset-0 w-full h-full"
+              viewBox="0 0 256 256"
+              style={{ transform: 'rotate(0deg)' }}
+            >
+              {segments.map((value, index) => (
+                <path
+                  key={`shade-${value}`}
+                  d={createSegmentPath(index)}
+                  fill={getSegmentColor(value)}
+                  stroke="rgba(255, 255, 255, 0.2)"
+                  strokeWidth="1"
+                />
+              ))}
+            </svg>
+
+            {/* Wheel segments with numbers */}
+            <div className="absolute inset-0 rounded-full">
+              {segments.map((value, index) => (
                 <div
-                  className={`w-full h-1/2 flex items-start justify-center pt-4 ${
-                    index % 2 === 0 ? 'opacity-100' : 'opacity-70'
-                  }`}
+                  key={value}
+                  className="absolute inset-0 flex items-center justify-center"
+                  style={{
+                    transform: `rotate(${index * segmentAngle}deg)`,
+                  }}
                 >
-                  <span className="text-white font-bold text-2xl drop-shadow-lg">
-                    {value > 0 ? '+' : ''}{value}
-                  </span>
+                  <div className="w-full h-1/2 flex items-start justify-center pt-6">
+                    <span 
+                      className="text-white font-bold text-2xl"
+                      style={{
+                        filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.8))',
+                        textShadow: '0 0 8px rgba(0,0,0,0.5)',
+                      }}
+                    >
+                      {value > 0 ? '+' : ''}{value}
+                    </span>
+                  </div>
                 </div>
+              ))}
+            </div>
+
+            {/* Segment dividers */}
+            <svg className="absolute inset-0 w-full h-full" viewBox="0 0 256 256">
+              {segments.map((_, index) => {
+                const angle = (index * segmentAngle - 90) * (Math.PI / 180);
+                const x = 128 + 128 * Math.cos(angle);
+                const y = 128 + 128 * Math.sin(angle);
+                return (
+                  <line
+                    key={`divider-${index}`}
+                    x1="128"
+                    y1="128"
+                    x2={x}
+                    y2={y}
+                    stroke="rgba(255, 255, 255, 0.3)"
+                    strokeWidth="2"
+                  />
+                );
+              })}
+            </svg>
+
+            {/* Center circle */}
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-20 h-20 rounded-full bg-background border-4 border-white flex items-center justify-center shadow-xl">
+                <Sparkles size={32} className="text-white animate-pulse" />
               </div>
-            ))}
+            </div>
           </div>
 
-          {/* Segment dividers */}
-          <div className="absolute inset-0 rounded-full">
-            {[...Array(7)].map((_, index) => (
-              <div
-                key={`divider-${index}`}
-                className="absolute inset-0"
-                style={{
-                  transform: `rotate(${index * (360 / 7)}deg)`,
-                }}
-              >
-                <div className="w-0.5 h-1/2 bg-white/30 mx-auto" />
-              </div>
-            ))}
-          </div>
-
-          {/* Center circle */}
-          <div className="relative z-10 w-20 h-20 rounded-full bg-background border-4 border-white flex items-center justify-center shadow-xl">
-            <Sparkles size={32} className="text-white animate-pulse" />
-          </div>
-        </div>
-
-        {/* Pointer */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-4 z-20">
-          <div className="w-0 h-0 border-l-8 border-r-8 border-t-12 border-l-transparent border-r-transparent border-t-white drop-shadow-lg" />
+          {/* Landing indicator - shows after spin */}
+          {showResult && (
+            <div 
+              className="absolute top-0 left-1/2 -translate-x-1/2 translate-y-8 z-20 pointer-events-none"
+            >
+              <div className="w-1 h-16 bg-white/80 rounded-full shadow-lg" />
+            </div>
+          )}
         </div>
 
         {/* Result Display */}

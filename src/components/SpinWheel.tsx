@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Sparkles, X } from 'lucide-react';
 
 interface SpinWheelProps {
@@ -18,6 +18,7 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
 }) => {
   const [rotation, setRotation] = useState(0);
   const [showResult, setShowResult] = useState(false);
+  const wheelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isSpinning) {
@@ -50,8 +51,6 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
       }
       
       // Calculate the angle to land in the CENTER of the target segment
-      // Since we're rotating counter-clockwise (negative), we need to calculate
-      // how far to rotate to bring the target segment under the pointer
       const centerOffset = segmentAngle / 2;
       const targetAngle = (targetIndex * segmentAngle) + centerOffset;
       
@@ -62,7 +61,7 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
       });
       
       // Add 5 full rotations for dramatic effect
-      // NEGATIVE rotation = counter-clockwise = brings segments UP to the pointer
+      // NEGATIVE rotation = counter-clockwise
       const spins = 5;
       const finalRotation = -((spins * 360) + targetAngle);
       
@@ -73,12 +72,32 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
         willLandOn: segments[targetIndex]
       });
       
-      setRotation(finalRotation);
+      // Set up transitionend listener BEFORE triggering rotation
+      const handleTransitionEnd = (e: TransitionEvent) => {
+        // Only respond to transform transitions on the wheel itself
+        if (e.propertyName === 'transform' && e.target === wheelRef.current) {
+          console.log('✅ Animation completed, showing result');
+          setShowResult(true);
+          wheelRef.current?.removeEventListener('transitionend', handleTransitionEnd);
+        }
+      };
 
-      // Show result after spin completes
-      setTimeout(() => {
-        setShowResult(true);
-      }, 3000);
+      if (wheelRef.current) {
+        wheelRef.current.addEventListener('transitionend', handleTransitionEnd);
+      }
+
+      // Trigger rotation after listener is set up
+      // Use requestAnimationFrame to ensure DOM is ready
+      requestAnimationFrame(() => {
+        setRotation(finalRotation);
+      });
+
+      // Cleanup function
+      return () => {
+        if (wheelRef.current) {
+          wheelRef.current.removeEventListener('transitionend', handleTransitionEnd);
+        }
+      };
     }
   }, [isSpinning, newValue, oldValue, traitTarget]);
 
@@ -116,13 +135,10 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
     const potentialChange = segmentValue - oldValue;
     
     if (potentialChange > 0) {
-      // Landing here would be an improvement
       return 'rgba(16, 185, 129, 0.85)'; // green
     } else if (potentialChange < 0) {
-      // Landing here would be a degradation
       return 'rgba(239, 68, 68, 0.85)'; // red
     } else {
-      // No change
       return 'rgba(163, 163, 163, 0.6)'; // neutral
     }
   };
@@ -134,9 +150,11 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
   };
 
   // Create SVG path for a segment
+  // FIXED: Start from -90° (top) instead of 0° (right)
   const createSegmentPath = (index: number) => {
-    const startAngle = (index * segmentAngle) * (Math.PI / 180);
-    const endAngle = ((index + 1) * segmentAngle) * (Math.PI / 180);
+    // Offset by -90° to start at top (12 o'clock) where pointer is
+    const startAngle = ((index * segmentAngle) - 90) * (Math.PI / 180);
+    const endAngle = (((index + 1) * segmentAngle) - 90) * (Math.PI / 180);
     const radius = 128; // Half of 256px wheel size
     
     const x1 = 128 + radius * Math.cos(startAngle);
@@ -180,6 +198,7 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
 
           {/* Spinning Wheel */}
           <div
+            ref={wheelRef}
             className="w-64 h-64 rounded-full shadow-2xl transition-transform duration-3000 ease-out relative overflow-hidden"
             style={{
               transform: `rotate(${rotation}deg)`,

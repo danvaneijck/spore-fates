@@ -31,20 +31,18 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
     }
 
     const fetchData = async () => {
-      // Fetch Traits
+      // 1. Fetch Traits
       const traitData = await shroomService.getShroomTraits(tokenId);
       if (traitData) setTraits(traitData);
-      else setTraits({ cap: 0, stem: 0, spores: 0, substrate: 0 }); // Handle non-existent token
 
-      // Fetch Rewards
-      const gameData = await shroomService.getTokenGameInfo(tokenId);
-      if (gameData) {
-        setPendingRewards(gameData.pending_rewards);
-        setDisplayRewards((parseInt(gameData.pending_rewards) / Math.pow(10, NETWORK_CONFIG.paymentDecimals)).toFixed(3)); // Adjust decimals
-      } else {
-        setPendingRewards('0');
-        setDisplayRewards('0.00');
-      }
+      // 2. Fetch ACCURATE Rewards (Use the new function)
+      const rewards = await shroomService.getPendingRewards(tokenId);
+
+      setPendingRewards(rewards);
+
+      // Calculate display (assuming 6 decimals, adjust to your config)
+      const displayVal = (parseInt(rewards) / Math.pow(10, NETWORK_CONFIG.paymentDecimals));
+      setDisplayRewards(displayVal.toFixed(2));
     };
 
     fetchData();

@@ -1,6 +1,7 @@
 import React from 'react';
 import { MushroomRenderer } from './MushroomRenderer';
 import { Sparkles, TrendingUp, Award, Loader2 } from 'lucide-react';
+import { NETWORK_CONFIG } from '../config';
 
 interface TraitExtension {
   cap: number;
@@ -102,7 +103,7 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
             >
               <span className="text-text font-semibold">Spin Cap</span>
               <div className="flex items-center gap-2">
-                <span className="text-sm text-textSecondary">0.5 SHROOM</span>
+                <span className="text-sm text-textSecondary">{NETWORK_CONFIG.spinCost} {NETWORK_CONFIG.paymentSymbol}</span>
                 {isLoading ? (
                   <Loader2 size={20} className="text-primary animate-spin" />
                 ) : (
@@ -118,7 +119,7 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
             >
               <span className="text-text font-semibold">Spin Stem</span>
               <div className="flex items-center gap-2">
-                <span className="text-sm text-textSecondary">0.5 SHROOM</span>
+                <span className="text-sm text-textSecondary">{NETWORK_CONFIG.spinCost} {NETWORK_CONFIG.paymentSymbol}</span>
                 {isLoading ? (
                   <Loader2 size={20} className="text-secondary animate-spin" />
                 ) : (
@@ -134,7 +135,7 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
             >
               <span className="text-text font-semibold">Spin Spores</span>
               <div className="flex items-center gap-2">
-                <span className="text-sm text-textSecondary">0.5 SHROOM</span>
+                <span className="text-sm text-textSecondary">{NETWORK_CONFIG.spinCost} {NETWORK_CONFIG.paymentSymbol}</span>
                 {isLoading ? (
                   <Loader2 size={20} className="text-accent animate-spin" />
                 ) : (
@@ -154,7 +155,7 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
 
           <div className="bg-gradient-to-r from-success/20 to-success/10 border border-success/30 rounded-xl p-6 mb-4">
             <div className="text-sm text-textSecondary mb-1">Pending Rewards</div>
-            <div className="text-3xl font-bold text-success">{pendingRewards} SHROOM</div>
+            <div className="text-3xl font-bold text-success">{pendingRewards} {NETWORK_CONFIG.paymentSymbol}</div>
           </div>
 
           <button
@@ -182,9 +183,9 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
 
           <div className="bg-gradient-to-r from-warning/20 to-warning/10 border border-warning/30 rounded-xl p-6 mb-4">
             <div className="text-sm text-textSecondary mb-2">
-              {canAscend 
+              {canAscend
                 ? '✨ Ready to ascend! 20% chance to increase substrate level.'
-                : score === 9 
+                : score === 9
                   ? '🏆 Maximum substrate level reached!'
                   : `📈 Reach +9 score to unlock ascension (Current: ${score > 0 ? '+' : ''}${score})`
               }

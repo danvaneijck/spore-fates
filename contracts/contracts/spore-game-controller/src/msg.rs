@@ -48,6 +48,12 @@ pub enum QueryMsg {
     Config {},
     GlobalState {},
     TokenInfo { token_id: String },
+    GetPendingRewards { token_id: String },
+}
+
+#[cw_serde]
+pub struct PendingRewardsResponse {
+    pub pending_rewards: Uint128,
 }
 
 // Message for calling CW721 contract

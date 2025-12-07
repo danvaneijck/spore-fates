@@ -14,6 +14,7 @@ export const NETWORK_CONFIG = {
 
     // Coin settings
     paymentDenom: import.meta.env.VITE_MINT_DENOM, // or your specific IBC denom/token
+    paymentSymbol: import.meta.env.VITE_MINT_SYMBOL,
     paymentDecimals: import.meta.env.VITE_MINT_DECIMALS,
     mintCost: import.meta.env.VITE_MINT_COST, // or your specific IBC denom/token
     spinCost: import.meta.env.VITE_SPIN_COST, // Example: 0.1 INJ (18 decimals)

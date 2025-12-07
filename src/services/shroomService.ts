@@ -54,6 +54,30 @@ export const shroomService = {
         }
     },
 
+    /**
+     * Get the accurate, real-time pending rewards
+     */
+    async getPendingRewards(tokenId: string): Promise<string> {
+        try {
+            const queryMsg = {
+                get_pending_rewards: {
+                    token_id: tokenId,
+                },
+            };
+
+            const response = await wasmApi.fetchSmartContractState(
+                NETWORK_CONFIG.gameControllerAddress,
+                queryMsg
+            );
+
+            const data = JSON.parse(new TextDecoder().decode(response.data));
+            return data.pending_rewards;
+        } catch (error) {
+            console.error("Error fetching pending rewards:", error);
+            return "0";
+        }
+    },
+
     async getTokensOwned(ownerAddress: string): Promise<string[]> {
         try {
             const queryMsg = {

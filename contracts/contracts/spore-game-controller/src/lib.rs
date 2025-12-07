@@ -10,7 +10,7 @@ pub mod msg;
 pub mod state;
 pub mod error;
 
-use crate::msg::{InstantiateMsg, ExecuteMsg, QueryMsg, TraitExtension, TraitTarget, Cw721ExecuteMsg};
+use crate::msg::{Cw721ExecuteMsg, ExecuteMsg, InstantiateMsg, PendingRewardsResponse, QueryMsg, TraitExtension, TraitTarget};
 use crate::state::{CONFIG, Config, GLOBAL_STATE, GlobalState, MINT_COUNTER, TOKEN_INFO, TokenInfo};
 use crate::error::ContractError;
 
@@ -288,10 +288,9 @@ fn execute_spin(
         let reward_per_share = config.spin_cost
             .checked_div(global_state.total_shares)?;
         global_state.global_reward_index = global_state.global_reward_index
-            .checked_add(reward_per_share)?;
+            .checked_add(Uint128::from(reward_per_share))?;
     }
     let new_index = global_state.global_reward_index;
-
     // 6. Capture Self-Reward (The Fix)
     // Credit user for the index jump caused by THEIR OWN spin cost
     let index_increase = new_index.checked_sub(old_index)?;
@@ -329,6 +328,7 @@ fn execute_spin(
         .add_attribute("old_value", current_value.to_string())
         .add_attribute("new_value", final_value.to_string()))
 }
+
 fn execute_harvest(
     deps: DepsMut,
     _env: Env,
@@ -337,7 +337,7 @@ fn execute_harvest(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     
-    // Verify ownership
+    // 1. Verify ownership
     let owner_response: cw721::OwnerOfResponse = deps.querier.query_wasm_smart(
         config.cw721_addr.to_string(),
         &cw721::Cw721QueryMsg::OwnerOf {
@@ -350,23 +350,38 @@ fn execute_harvest(
         return Err(ContractError::Unauthorized {});
     }
     
-    // Load token info
+    // Load state
     let mut token_info = TOKEN_INFO.load(deps.storage, &token_id)?;
+    let mut global_state = GLOBAL_STATE.load(deps.storage)?;
+
+    // 2. CRITICAL FIX: Catch up rewards (Lazy Evaluation)
+    // Calculate rewards accrued since the last action until NOW
+    if !token_info.current_shares.is_zero() {
+        let accumulated = token_info.current_shares
+            .checked_mul(global_state.global_reward_index)?
+            .checked_sub(token_info.reward_debt)
+            .unwrap_or(Uint128::zero());
+            
+        token_info.pending_rewards = token_info.pending_rewards.checked_add(accumulated)?;
+    }
     
+    // 3. Check if there is anything to claim
     if token_info.pending_rewards.is_zero() {
         return Err(ContractError::NoRewards {});
     }
     
-    // Send rewards
+    // 4. Send rewards to user
+    let payout_amount = token_info.pending_rewards;
+    
     let send_msg = BankMsg::Send {
         to_address: info.sender.to_string(),
         amount: vec![Coin {
             denom: config.payment_denom.clone(),
-            amount: token_info.pending_rewards,
+            amount: payout_amount,
         }],
     };
     
-    // Reset traits (except substrate)
+    // 5. Reset Traits (Game Logic)
     let nft_info: cw721::NftInfoResponse<TraitExtension> = deps.querier.query_wasm_smart(
         config.cw721_addr.to_string(),
         &cw721::Cw721QueryMsg::NftInfo { token_id: token_id.clone() },
@@ -375,13 +390,15 @@ fn execute_harvest(
     let mut traits = nft_info.extension;
     let substrate = traits.substrate;
     
+    // Reset stats
     traits.cap = 0;
     traits.stem = 0;
     traits.spores = 0;
     
-    // Substrate level 1 buff: set random trait to +1
+    // Substrate bonus logic
     if substrate >= 1 {
-        let random = (token_info.pending_rewards.u128() % 3) as u8;
+        // Simple pseudo-random using the payout amount to determine bonus
+        let random = (payout_amount.u128() % 3) as u8;
         match random {
             0 => traits.cap = 1,
             1 => traits.stem = 1,
@@ -389,17 +406,20 @@ fn execute_harvest(
         }
     }
     
-    // Update shares
-    let mut global_state = GLOBAL_STATE.load(deps.storage)?;
-    global_state.total_shares = global_state.total_shares.checked_sub(token_info.current_shares)?;
+    // 6. Update Shares (Global State)
+    let old_shares = token_info.current_shares;
+    let new_shares = calculate_shares(&traits); // Should return to baseline (e.g. 100)
     
-    let new_shares = calculate_shares(&traits);
-    global_state.total_shares = global_state.total_shares.checked_add(new_shares)?;
+    global_state.total_shares = global_state.total_shares
+        .checked_sub(old_shares)?
+        .checked_add(new_shares)?;
     
+    // 7. Reset User State
     token_info.current_shares = new_shares;
     token_info.pending_rewards = Uint128::zero();
     token_info.reward_debt = new_shares.checked_mul(global_state.global_reward_index)?;
     
+    // Save everything
     GLOBAL_STATE.save(deps.storage, &global_state)?;
     TOKEN_INFO.save(deps.storage, &token_id, &token_info)?;
     
@@ -418,7 +438,7 @@ fn execute_harvest(
         .add_message(update_msg)
         .add_attribute("action", "harvest")
         .add_attribute("token_id", token_id)
-        .add_attribute("rewards", token_info.pending_rewards))
+        .add_attribute("rewards_paid", payout_amount))
 }
 
 fn execute_ascend(
@@ -489,6 +509,8 @@ fn execute_ascend(
     traits.cap = 0;
     traits.stem = 0;
     traits.spores = 0;
+
+    let burned_amount = token_info.pending_rewards;
     
     // Burn pending rewards
     token_info.pending_rewards = Uint128::zero();
@@ -497,6 +519,15 @@ fn execute_ascend(
     global_state.total_shares = global_state.total_shares.checked_sub(token_info.current_shares)?;
     let new_shares = calculate_shares(&traits);
     global_state.total_shares = global_state.total_shares.checked_add(new_shares)?;
+
+    if !global_state.total_shares.is_zero() {
+        // Multiply by Precision
+        let reward_part = burned_amount.u128();
+        let reward_per_share = reward_part / global_state.total_shares.u128();
+        
+        global_state.global_reward_index = global_state.global_reward_index
+            .checked_add(Uint128::from(reward_per_share))?;
+    }
     
     token_info.current_shares = new_shares;
     token_info.reward_debt = new_shares.checked_mul(global_state.global_reward_index)?;
@@ -530,7 +561,38 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::TokenInfo { token_id } => {
             to_json_binary(&TOKEN_INFO.may_load(deps.storage, &token_id)?)
         }
+        QueryMsg::GetPendingRewards { token_id } => {
+            to_json_binary(&query_pending_rewards(deps, token_id)?)
+        }
     }
+}
+
+// Helper function to calculate rewards on the fly
+fn query_pending_rewards(deps: Deps, token_id: String) -> StdResult<PendingRewardsResponse> {
+    let global_state = GLOBAL_STATE.load(deps.storage)?;
+    
+    // Attempt to load token info. If it doesn't exist, rewards are 0.
+    let token_info = match TOKEN_INFO.may_load(deps.storage, &token_id)? {
+        Some(info) => info,
+        None => return Ok(PendingRewardsResponse { pending_rewards: Uint128::zero() }),
+    };
+
+    // Start with what is already stored on the "sticky note"
+    let mut total_rewards = token_info.pending_rewards;
+
+    // Calculate the gap between current global index and the user's debt
+    if !token_info.current_shares.is_zero() {
+        let accumulated_since_last_action = token_info.current_shares
+            .checked_mul(global_state.global_reward_index)?
+            .checked_sub(token_info.reward_debt)
+            .unwrap_or(Uint128::zero()); // Safety catch for underflow (shouldn't happen)
+            
+        total_rewards = total_rewards.checked_add(accumulated_since_last_action)?;
+    }
+
+    Ok(PendingRewardsResponse {
+        pending_rewards: total_rewards,
+    })
 }
 
 impl Default for TraitExtension {

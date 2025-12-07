@@ -18,27 +18,31 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
 }) => {
   const [rotation, setRotation] = useState(0);
   const [showResult, setShowResult] = useState(false);
-  const [landingSegment, setLandingSegment] = useState(0);
 
   useEffect(() => {
     if (isSpinning) {
       setShowResult(false);
       
-      // Calculate which segment we land on based on new value
-      // Segments: [-3, -2, -1, 0, 1, 2, 3]
+      // Segments array: [-3, -2, -1, 0, 1, 2, 3]
       const segments = [-3, -2, -1, 0, 1, 2, 3];
+      const segmentAngle = 360 / 7;
+      
+      // Find which segment index corresponds to newValue
       const targetIndex = segments.indexOf(newValue);
       
-      // Calculate rotation to land on target segment
-      // Each segment is 360/7 degrees, we want to land in the middle of the segment
-      const segmentAngle = 360 / 7;
-      const targetAngle = targetIndex * segmentAngle + (segmentAngle / 2);
+      if (targetIndex === -1) {
+        console.error('Invalid newValue:', newValue);
+        return;
+      }
       
-      // Add 5 full rotations for spin effect
+      // Calculate the angle to land in the CENTER of the target segment
+      // Segments start at -90° (top), so segment 0 (-3) is at top
+      const targetAngle = targetIndex * segmentAngle;
+      
+      // Add 5 full rotations for dramatic effect
       const spins = 5;
       const finalRotation = spins * 360 + targetAngle;
       
-      setLandingSegment(targetIndex);
       setRotation(finalRotation);
 
       // Show result after spin completes
@@ -76,10 +80,15 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
   const segments = [-3, -2, -1, 0, 1, 2, 3];
   const segmentAngle = 360 / 7;
 
-  // Simplified binary color scheme: red for decrease, green for increase
-  const getSegmentColor = (value: number) => {
-    if (value > 0) return 'rgba(16, 185, 129, 0.4)'; // green for positive
-    return 'rgba(239, 68, 68, 0.4)'; // red for negative and zero
+  // Color logic based on smart contract success/failure outcomes
+  // Green = improvement (increase in value)
+  // Red = decrease or no change
+  const getSegmentColor = (value: number, oldVal: number) => {
+    // Determine if landing on this segment would be an improvement
+    if (value > oldVal) {
+      return 'rgba(16, 185, 129, 0.4)'; // green - improvement
+    }
+    return 'rgba(239, 68, 68, 0.4)'; // red - decrease or same
   };
 
   const handleBackdropClick = (e: React.MouseEvent) => {
@@ -152,7 +161,7 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
                 <path
                   key={`shade-${value}`}
                   d={createSegmentPath(index)}
-                  fill={getSegmentColor(value)}
+                  fill={getSegmentColor(value, oldValue)}
                   stroke="rgba(255, 255, 255, 0.2)"
                   strokeWidth="1"
                 />

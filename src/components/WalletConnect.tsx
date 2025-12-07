@@ -9,9 +9,10 @@ interface WalletConnectProps {
   onAddressChange: (address: string) => void;
 }
 
-const walletStrategy = new WalletStrategy({
+export const walletStrategy = new WalletStrategy({
   chainId: ChainId.Testnet,
   strategies: {},
+
 });
 
 export const WalletConnect: React.FC<WalletConnectProps> = ({ onAddressChange }) => {
@@ -28,16 +29,16 @@ export const WalletConnect: React.FC<WalletConnectProps> = ({ onAddressChange })
   const connectWallet = async (walletType: WalletType) => {
     setIsConnecting(true);
     setShowWalletMenu(false);
-    
+
     try {
       walletStrategy.setWallet(walletType);
       const addresses = await walletStrategy.getAddresses();
-      
+
       // Convert to Injective address if needed (for EVM wallets)
-      const injectiveAddress = walletType === WalletType.Metamask 
+      const injectiveAddress = walletType === WalletType.Metamask
         ? getInjectiveAddress(addresses[0])
         : addresses[0];
-      
+
       setAddress(injectiveAddress);
       onAddressChange(injectiveAddress);
     } catch (error) {

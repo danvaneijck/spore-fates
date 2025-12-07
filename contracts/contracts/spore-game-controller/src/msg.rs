@@ -14,6 +14,7 @@ pub struct TraitExtension {
 pub struct InstantiateMsg {
     pub payment_denom: String,
     pub spin_cost: Uint128,
+    pub mint_cost: Uint128,
     pub pyth_contract_addr: String,
     pub price_feed_id: String,
     pub cw721_addr: String,
@@ -38,6 +39,7 @@ pub enum ExecuteMsg {
     Ascend {
         token_id: String,
     },
+    Mint {},
     AcceptOwnership { cw721_contract: String },
 }
 
@@ -54,5 +56,11 @@ pub enum Cw721ExecuteMsg {
     UpdateTraits {
         token_id: String,
         traits: TraitExtension,
+    },
+    Mint {
+        token_id: String,
+        owner: String,
+        token_uri: Option<String>,
+        extension: TraitExtension,
     },
 }

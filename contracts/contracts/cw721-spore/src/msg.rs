@@ -50,4 +50,9 @@ pub enum QueryMsg {
     NftInfo {
         token_id: String,
     },
+    Tokens {
+        owner: String,
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
 }

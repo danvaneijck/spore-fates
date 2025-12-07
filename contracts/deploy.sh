@@ -20,6 +20,7 @@ DEPLOYER_ADDRESS="inj1q2m26a7jdzjyfdn545vqsude3zwwtfrdap5jgz"
 # Game Configuration
 SPIN_COST="1000000000000000000" # 1.0 INJ (18 decimals)
 PAYMENT_DENOM="inj"
+MINT_COST="500000000000000000"  # 0.5 INJ (18 decimals)
 
 # Pyth Oracle Configuration (Injective Testnet)
 # Verify these against official docs if needed. 
@@ -171,12 +172,14 @@ echo "--- 3. Instantiating Game Controller ---"
 INIT_GAME=$(jq -n \
   --arg payment "$PAYMENT_DENOM" \
   --arg cost "$SPIN_COST" \
+  --arg mint_cost "$MINT_COST" \
   --arg pyth "$PYTH_CONTRACT_ADDR" \
   --arg feed "$PYTH_PRICE_FEED_ID" \
   --arg cw721 "$CW721_ADDRESS" \
   '{
     payment_denom: $payment,
     spin_cost: $cost,
+    mint_cost: $mint_cost,
     pyth_contract_addr: $pyth,
     price_feed_id: $feed,
     cw721_addr: $cw721

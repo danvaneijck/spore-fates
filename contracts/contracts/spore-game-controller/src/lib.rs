@@ -10,8 +10,8 @@ pub mod msg;
 pub mod state;
 pub mod error;
 
-use crate::msg::{InstantiateMsg, ExecuteMsg, QueryMsg, TraitExtension, TraitTarget};
-use crate::state::{Config, GlobalState, TokenInfo, CONFIG, GLOBAL_STATE, TOKEN_INFO};
+use crate::msg::{InstantiateMsg, ExecuteMsg, QueryMsg, TraitExtension, TraitTarget, Cw721ExecuteMsg};
+use crate::state::{CONFIG, Config, GLOBAL_STATE, GlobalState, MINT_COUNTER, TOKEN_INFO, TokenInfo};
 use crate::error::ContractError;
 
 const CONTRACT_NAME: &str = "crates.io:spore-game-controller";
@@ -26,9 +26,12 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
+    MINT_COUNTER.save(deps.storage, &1u64)?;
+
     let config = Config {
         payment_denom: msg.payment_denom,
         spin_cost: msg.spin_cost,
+        mint_cost: msg.mint_cost,
         pyth_contract_addr: deps.api.addr_validate(&msg.pyth_contract_addr)?,
         price_feed_id: msg.price_feed_id,
         cw721_addr: deps.api.addr_validate(&msg.cw721_addr)?,
@@ -70,6 +73,7 @@ pub fn execute(
         ExecuteMsg::Ascend { token_id } => {
             execute_ascend(deps, env, info, token_id)
         }
+        ExecuteMsg::Mint {} => execute_mint(deps, env, info),
         ExecuteMsg::AcceptOwnership { cw721_contract } => {
             // We must wrap AcceptOwnership inside UpdateOwnership
             let inner_msg = Cw721OwnableMsg::UpdateOwnership(
@@ -110,6 +114,78 @@ fn get_randomness(env: &Env, _deps: &DepsMut, nonce: u64) -> Result<u8, Contract
     Ok(result[0])
 }
 
+fn execute_mint(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+
+    // 1. Payment Validation (Same as before)
+    if config.mint_cost > Uint128::zero() {
+        let payment = info.funds.iter()
+            .find(|coin| coin.denom == config.payment_denom)
+            .ok_or(ContractError::InvalidPayment {})?;
+
+        if payment.amount < config.mint_cost {
+            return Err(ContractError::InsufficientFunds {});
+        }
+    }
+
+    // 2. Get and Increment Counter
+    let current_id_num = MINT_COUNTER.load(deps.storage)?;
+    let next_id_num = current_id_num + 1;
+    MINT_COUNTER.save(deps.storage, &next_id_num)?;
+
+    // Convert to String for CW721
+    let token_id = current_id_num.to_string();
+
+    // 3. Initialize Default Traits
+    let default_traits = TraitExtension::default();
+    let initial_shares = calculate_shares(&default_traits);
+
+    // 4. Update Global State (Rewards)
+    let mut global_state = GLOBAL_STATE.load(deps.storage)?;
+    
+    // Distribute mint cost to existing holders
+    if !global_state.total_shares.is_zero() && config.mint_cost > Uint128::zero() {
+        let reward_per_share = config.mint_cost
+            .checked_div(global_state.total_shares)?;
+        global_state.global_reward_index = global_state.global_reward_index
+            .checked_add(reward_per_share)?;
+    }
+
+    global_state.total_shares = global_state.total_shares.checked_add(initial_shares)?;
+    GLOBAL_STATE.save(deps.storage, &global_state)?;
+
+    // 5. Save Token Info locally
+    let token_info = TokenInfo {
+        current_shares: initial_shares,
+        // Calculate debt based on NEW global index
+        reward_debt: initial_shares.checked_mul(global_state.global_reward_index)?,
+        pending_rewards: Uint128::zero(),
+    };
+    TOKEN_INFO.save(deps.storage, &token_id, &token_info)?;
+
+    // 6. Send Mint Message to CW721
+    let mint_msg = WasmMsg::Execute {
+        contract_addr: config.cw721_addr.to_string(),
+        msg: to_json_binary(&Cw721ExecuteMsg::Mint {
+            token_id: token_id.clone(),
+            owner: info.sender.to_string(),
+            token_uri: None, // You could construct a URI here like "ipfs://.../{token_id}.json"
+            extension: default_traits,
+        })?,
+        funds: vec![],
+    };
+
+    Ok(Response::new()
+        .add_message(mint_msg)
+        .add_attribute("action", "mint")
+        .add_attribute("token_id", token_id) // Returns the generated ID
+        .add_attribute("owner", info.sender))
+}
+
 /// Calculate shares based on traits
 fn calculate_shares(traits: &TraitExtension) -> Uint128 {
     let base_shares = 100u128;
@@ -131,7 +207,7 @@ fn execute_spin(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     
-    // Validate payment
+    // 1. Validate payment
     let payment = info.funds.iter()
         .find(|coin| coin.denom == config.payment_denom)
         .ok_or(ContractError::InvalidPayment {})?;
@@ -140,10 +216,8 @@ fn execute_spin(
         return Err(ContractError::InsufficientFunds {});
     }
     
-    // Load global state
     let mut global_state = GLOBAL_STATE.load(deps.storage)?;
     
-    // Load or create token info
     let mut token_info = TOKEN_INFO
         .may_load(deps.storage, &token_id)?
         .unwrap_or(TokenInfo {
@@ -151,16 +225,8 @@ fn execute_spin(
             reward_debt: Uint128::zero(),
             pending_rewards: Uint128::zero(),
         });
-    
-    // Query current traits from NFT contract
-    let nft_info: cw721::NftInfoResponse<TraitExtension> = deps.querier.query_wasm_smart(
-        config.cw721_addr.to_string(),
-        &cw721::Cw721QueryMsg::NftInfo { token_id: token_id.clone() },
-    )?;
-    
-    let mut traits = nft_info.extension;
-    
-    // Checkpoint rewards
+
+    // 2. Harvest rewards from BEFORE this interaction
     if !token_info.current_shares.is_zero() && !global_state.total_shares.is_zero() {
         let pending = token_info.current_shares
             .checked_mul(global_state.global_reward_index)?
@@ -168,74 +234,77 @@ fn execute_spin(
         token_info.pending_rewards = token_info.pending_rewards.checked_add(pending)?;
     }
     
-    // Get randomness
+    // 3. Game Logic
+    let nft_info: cw721::NftInfoResponse<TraitExtension> = deps.querier.query_wasm_smart(
+        config.cw721_addr.to_string(),
+        &cw721::Cw721QueryMsg::NftInfo { token_id: token_id.clone() },
+    )?;
+    
+    let mut traits = nft_info.extension;
+        
     let random_value = get_randomness(&env, &deps, global_state.spin_nonce)?;
     global_state.spin_nonce += 1;
     
-    // Determine success threshold based on substrate level
     let success_threshold = if traits.substrate >= 3 { 140u8 } else { 128u8 };
     let is_success = random_value >= success_threshold;
     
-    // Get current trait value
     let current_value = match trait_target {
         TraitTarget::Cap => traits.cap,
         TraitTarget::Stem => traits.stem,
         TraitTarget::Spores => traits.spores,
     };
     
-    // Apply swap rule and mutation
     let new_value = if is_success {
-        // Win: -1 becomes +1, others increment
-        if current_value == -1 {
-            1
-        } else {
-            (current_value + 1).min(3)
-        }
+        if current_value == -1 { 1 } else { (current_value + 1).min(3) }
     } else {
-        // Loss: +1 becomes -1 (unless substrate >= 2), others decrement
-        if current_value == 1 && traits.substrate >= 2 {
-            current_value // Safety net
-        } else if current_value == 1 {
-            -1
-        } else {
-            (current_value - 1).max(-3)
-        }
+        if current_value == 1 && traits.substrate >= 2 { current_value } 
+        else if current_value == 1 { -1 } 
+        else { (current_value - 1).max(-3) }
     };
     
-    // Apply substrate level 4 bonus (10% chance for +2 on win)
     let final_value = if is_success && traits.substrate >= 4 && random_value % 10 == 0 {
         (new_value + 1).min(3)
     } else {
         new_value
     };
     
-    // Update trait
     match trait_target {
         TraitTarget::Cap => traits.cap = final_value,
         TraitTarget::Stem => traits.stem = final_value,
         TraitTarget::Spores => traits.spores = final_value,
     }
     
-    // Recalculate shares
-    let old_shares = token_info.current_shares;
+    // 4. Update Shares (Global Denominator)
     let new_shares = calculate_shares(&traits);
     
-    // Update global state
     global_state.total_shares = global_state.total_shares
-        .checked_sub(old_shares)?
-        .checked_add(new_shares)?;
+        .checked_sub(token_info.current_shares)? 
+        .checked_add(new_shares)?; 
+
+    // 5. Update Index (Add Revenue)
+    let old_index = global_state.global_reward_index;
     
-    // Add spin revenue to reward pool
     if !global_state.total_shares.is_zero() {
         let reward_per_share = config.spin_cost
             .checked_div(global_state.total_shares)?;
         global_state.global_reward_index = global_state.global_reward_index
             .checked_add(reward_per_share)?;
     }
+    let new_index = global_state.global_reward_index;
+
+    // 6. Capture Self-Reward (The Fix)
+    // Credit user for the index jump caused by THEIR OWN spin cost
+    let index_increase = new_index.checked_sub(old_index)?;
     
-    // Update token info
+    if !new_shares.is_zero() {
+        let self_reward = new_shares.checked_mul(index_increase)?;
+        token_info.pending_rewards = token_info.pending_rewards.checked_add(self_reward)?;
+    }
+
+    // 7. Reset Debt
+    // Set debt to the NEW index so we don't claim these rewards again next time
     token_info.current_shares = new_shares;
-    token_info.reward_debt = new_shares.checked_mul(global_state.global_reward_index)?;
+    token_info.reward_debt = new_shares.checked_mul(new_index)?;
     
     // Save state
     GLOBAL_STATE.save(deps.storage, &global_state)?;
@@ -258,10 +327,8 @@ fn execute_spin(
         .add_attribute("trait_target", format!("{:?}", trait_target))
         .add_attribute("success", is_success.to_string())
         .add_attribute("old_value", current_value.to_string())
-        .add_attribute("new_value", final_value.to_string())
-        .add_attribute("random_value", random_value.to_string()))
+        .add_attribute("new_value", final_value.to_string()))
 }
-
 fn execute_harvest(
     deps: DepsMut,
     _env: Env,
@@ -500,6 +567,7 @@ mod tests {
         let msg = InstantiateMsg {
             payment_denom: PAYMENT_DENOM.to_string(),
             spin_cost: Uint128::new(1_000_000),
+            mint_cost: Uint128::new(0),
             pyth_contract_addr: pyth.to_string(),
             price_feed_id: "test_feed_id".to_string(),
             cw721_addr: cw721.to_string(),

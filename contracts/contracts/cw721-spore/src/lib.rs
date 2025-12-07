@@ -140,6 +140,14 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             let cw721_msg = cw721_base::QueryMsg::NftInfo { token_id };
             base_contract.query(deps, env, cw721_msg)
         }
+        QueryMsg::Tokens { owner, start_after, limit } => {
+            let cw721_msg = cw721_base::QueryMsg::Tokens {
+                owner,
+                start_after,
+                limit,
+            };
+            base_contract.query(deps, env, cw721_msg)
+        }
     }
 }
 

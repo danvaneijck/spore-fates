@@ -6,6 +6,7 @@ use cw_storage_plus::{Item, Map};
 pub struct Config {
     pub payment_denom: String,
     pub spin_cost: Uint128,
+    pub mint_cost: Uint128,
     pub pyth_contract_addr: Addr,
     pub price_feed_id: String,
     pub cw721_addr: Addr,
@@ -28,3 +29,4 @@ pub struct TokenInfo {
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const GLOBAL_STATE: Item<GlobalState> = Item::new("global_state");
 pub const TOKEN_INFO: Map<&str, TokenInfo> = Map::new("token_info");
+pub const MINT_COUNTER: Item<u64> = Item::new("mint_counter");

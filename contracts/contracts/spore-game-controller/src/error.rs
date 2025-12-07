@@ -21,6 +21,9 @@ pub enum ContractError {
     #[error("Not at max level")]
     NotMaxLevel {},
 
+    #[error("Claimed")]
+    Claimed {},
+
     #[error("Already at max substrate level")]
     MaxSubstrate {},
 

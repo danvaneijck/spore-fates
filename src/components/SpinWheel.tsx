@@ -109,17 +109,23 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
   const segments = [-3, -2, -1, 0, 1, 2, 3];
   const segmentAngle = 360 / 7;
 
-  // SIMPLE COLOR LOGIC: Green if segment value > oldValue, Red if segment value < oldValue
+  // FIXED COLOR LOGIC: Green if landing here would be improvement, Red if degradation
   const getSegmentColor = (segmentValue: number) => {
-    if (segmentValue > oldValue) {
-      console.log(`✅ Segment ${segmentValue} > ${oldValue} = GREEN`);
-      return 'rgba(16, 185, 129, 0.85)'; // green - INCREASED OPACITY
-    } else if (segmentValue < oldValue) {
-      console.log(`❌ Segment ${segmentValue} < ${oldValue} = RED`);
-      return 'rgba(239, 68, 68, 0.85)'; // red - INCREASED OPACITY
+    // Calculate what the change would be if we landed on this segment
+    const potentialChange = segmentValue - oldValue;
+    
+    if (potentialChange > 0) {
+      // Landing here would be an improvement
+      console.log(`✅ Segment ${segmentValue}: ${oldValue} → ${segmentValue} = +${potentialChange} = GREEN`);
+      return 'rgba(16, 185, 129, 0.85)'; // green
+    } else if (potentialChange < 0) {
+      // Landing here would be a degradation
+      console.log(`❌ Segment ${segmentValue}: ${oldValue} → ${segmentValue} = ${potentialChange} = RED`);
+      return 'rgba(239, 68, 68, 0.85)'; // red
     } else {
-      console.log(`⚪ Segment ${segmentValue} = ${oldValue} = NEUTRAL`);
-      return 'rgba(163, 163, 163, 0.6)'; // neutral - INCREASED OPACITY
+      // No change
+      console.log(`⚪ Segment ${segmentValue}: ${oldValue} → ${segmentValue} = 0 = NEUTRAL`);
+      return 'rgba(163, 163, 163, 0.6)'; // neutral
     }
   };
 

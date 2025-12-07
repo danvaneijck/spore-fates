@@ -113,13 +113,13 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
   const getSegmentColor = (segmentValue: number) => {
     if (segmentValue > oldValue) {
       console.log(`✅ Segment ${segmentValue} > ${oldValue} = GREEN`);
-      return 'rgba(16, 185, 129, 0.5)'; // green - improvement
+      return 'rgba(16, 185, 129, 0.85)'; // green - INCREASED OPACITY
     } else if (segmentValue < oldValue) {
       console.log(`❌ Segment ${segmentValue} < ${oldValue} = RED`);
-      return 'rgba(239, 68, 68, 0.5)'; // red - decrease
+      return 'rgba(239, 68, 68, 0.85)'; // red - INCREASED OPACITY
     } else {
       console.log(`⚪ Segment ${segmentValue} = ${oldValue} = NEUTRAL`);
-      return 'rgba(163, 163, 163, 0.3)'; // neutral - no change
+      return 'rgba(163, 163, 163, 0.6)'; // neutral - INCREASED OPACITY
     }
   };
 
@@ -193,8 +193,8 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
                   key={`shade-${value}`}
                   d={createSegmentPath(index)}
                   fill={getSegmentColor(value)}
-                  stroke="rgba(255, 255, 255, 0.3)"
-                  strokeWidth="2"
+                  stroke="rgba(255, 255, 255, 0.5)"
+                  strokeWidth="3"
                 />
               ))}
             </svg>

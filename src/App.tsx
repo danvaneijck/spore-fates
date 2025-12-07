@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { WalletConnect, walletStrategy } from './components/WalletConnect';
 import { SpinInterface } from './components/SpinInterface';
 import { SpinWheel } from './components/SpinWheel';
+import { MintInterface } from './components/MintInterface';
 import { ToastProvider } from './components/ToastProvider';
-import { Sprout, Github, Twitter, PlusCircle } from 'lucide-react';
+import { Sprout, Github, Twitter } from 'lucide-react';
 import { MsgBroadcaster } from "@injectivelabs/wallet-core";
 import { BrowserRouter, Routes, Route, useParams } from 'react-router-dom';
 import { MushroomGallery } from './components/MushroomGallery';
@@ -104,12 +105,14 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
 
   if (!tokenId) {
     return (
-      <div className="bg-surface rounded-3xl p-12 border border-border text-center flex-1">
-        <Sprout size={64} className="text-primary mx-auto mb-4 opacity-50" />
-        <h3 className="text-2xl font-bold text-text mb-2">Select a Mushroom</h3>
-        <p className="text-textSecondary">
-          Choose a mushroom from your colony on the left, or mint a new one!
-        </p>
+      <div className="bg-surface rounded-3xl p-12 border border-border text-center h-full flex items-center justify-center min-h-[600px]">
+        <div>
+          <Sprout size={64} className="text-primary mx-auto mb-4 opacity-50" />
+          <h3 className="text-2xl font-bold text-text mb-2">Select a Mushroom</h3>
+          <p className="text-textSecondary">
+            Choose a mushroom from your colony on the left to start playing!
+          </p>
+        </div>
       </div>
     );
   }
@@ -257,27 +260,15 @@ function App() {
             </p>
 
             <div className="flex justify-center mb-8">
-              <div>
-                <WalletConnect onAddressChange={setAddress} />
-                {address && (
-                  <div className='mt-5'>
-                    <button
-                      onClick={handleMint}
-                      disabled={isLoading}
-                      className="flex items-center gap-2 text-sm text-primary hover:text-primary/80 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <PlusCircle size={16} />
-                      Mint New Shroom
-                    </button>
-                  </div>
-                )}
-              </div>
+              <WalletConnect onAddressChange={setAddress} />
             </div>
           </div>
 
-          <div className="flex flex-col md:flex-row gap-8 items-start">
+          {/* Main Content Grid - Fixed column widths */}
+          <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-8 items-start">
+            {/* Left Column - Gallery (Fixed width) */}
             {address && (
-              <div className="w-full md:w-auto">
+              <div className="w-full lg:w-[320px]">
                 <Routes>
                   <Route path="/play/:tokenId" element={<GalleryWrapper address={address} refreshTrigger={refreshTrigger} />} />
                   <Route path="*" element={<GalleryWrapper address={address} refreshTrigger={refreshTrigger} />} />
@@ -285,7 +276,8 @@ function App() {
               </div>
             )}
 
-            <div className="flex-1 w-full">
+            {/* Right Column - Game/Mint Interface (Flexible) */}
+            <div className="flex-1 min-h-[600px]">
               {address ? (
                 <Routes>
                   <Route path="/play/:tokenId" element={
@@ -298,15 +290,16 @@ function App() {
                     />
                   } />
                   <Route path="*" element={
-                    <div className="bg-surface rounded-3xl p-12 border border-border text-center">
-                      <p>Select a mushroom to start playing.</p>
+                    <div className="bg-surface rounded-3xl p-12 border border-border text-center h-full flex items-center justify-center min-h-[600px]">
+                      <div>
+                        <Sprout size={64} className="text-primary mx-auto mb-4 opacity-50" />
+                        <p className="text-textSecondary text-lg">Select a mushroom from your colony to start playing</p>
+                      </div>
                     </div>
                   } />
                 </Routes>
               ) : (
-                <div className="bg-surface rounded-3xl p-12 text-center">
-                  Connect Wallet
-                </div>
+                <MintInterface onMint={handleMint} isLoading={isLoading} />
               )}
             </div>
           </div>

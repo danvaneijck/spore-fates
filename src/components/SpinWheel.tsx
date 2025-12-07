@@ -21,27 +21,56 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
 
   useEffect(() => {
     if (isSpinning) {
+      console.log('🎲 SPIN DEBUG:', {
+        oldValue,
+        newValue,
+        change: newValue - oldValue,
+        traitTarget
+      });
+      
       setShowResult(false);
       
       // Segments array: [-3, -2, -1, 0, 1, 2, 3]
       const segments = [-3, -2, -1, 0, 1, 2, 3];
-      const segmentAngle = 360 / 7;
+      const segmentAngle = 360 / 7; // ~51.43 degrees per segment
       
       // Find which segment index corresponds to newValue
       const targetIndex = segments.indexOf(newValue);
       
+      console.log('🎯 TARGET:', {
+        newValue,
+        targetIndex,
+        segmentAngle,
+        segments
+      });
+      
       if (targetIndex === -1) {
-        console.error('Invalid newValue:', newValue);
+        console.error('❌ Invalid newValue:', newValue);
         return;
       }
       
       // Calculate the angle to land in the CENTER of the target segment
-      // Segments start at -90° (top), so segment 0 (-3) is at top
-      const targetAngle = targetIndex * segmentAngle;
+      // Wheel starts with segment 0 (-3) at the top (0 degrees)
+      // Each segment is segmentAngle degrees wide
+      // We want to land in the CENTER of the target segment
+      const centerOffset = segmentAngle / 2;
+      const targetAngle = (targetIndex * segmentAngle) + centerOffset;
+      
+      console.log('📐 ROTATION:', {
+        targetAngle,
+        centerOffset,
+        calculation: `${targetIndex} * ${segmentAngle} + ${centerOffset}`
+      });
       
       // Add 5 full rotations for dramatic effect
       const spins = 5;
-      const finalRotation = spins * 360 + targetAngle;
+      const finalRotation = (spins * 360) + targetAngle;
+      
+      console.log('🔄 FINAL:', {
+        spins,
+        finalRotation,
+        willLandOn: segments[targetIndex]
+      });
       
       setRotation(finalRotation);
 
@@ -50,7 +79,7 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
         setShowResult(true);
       }, 3000);
     }
-  }, [isSpinning, newValue]);
+  }, [isSpinning, newValue, oldValue, traitTarget]);
 
   if (!isSpinning && !showResult) return null;
 
@@ -80,15 +109,18 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
   const segments = [-3, -2, -1, 0, 1, 2, 3];
   const segmentAngle = 360 / 7;
 
-  // Color logic based on smart contract success/failure outcomes
-  // Green = improvement (increase in value)
-  // Red = decrease or no change
-  const getSegmentColor = (value: number, oldVal: number) => {
-    // Determine if landing on this segment would be an improvement
-    if (value > oldVal) {
-      return 'rgba(16, 185, 129, 0.4)'; // green - improvement
+  // SIMPLE COLOR LOGIC: Green if segment value > oldValue, Red if segment value < oldValue
+  const getSegmentColor = (segmentValue: number) => {
+    if (segmentValue > oldValue) {
+      console.log(`✅ Segment ${segmentValue} > ${oldValue} = GREEN`);
+      return 'rgba(16, 185, 129, 0.5)'; // green - improvement
+    } else if (segmentValue < oldValue) {
+      console.log(`❌ Segment ${segmentValue} < ${oldValue} = RED`);
+      return 'rgba(239, 68, 68, 0.5)'; // red - decrease
+    } else {
+      console.log(`⚪ Segment ${segmentValue} = ${oldValue} = NEUTRAL`);
+      return 'rgba(163, 163, 163, 0.3)'; // neutral - no change
     }
-    return 'rgba(239, 68, 68, 0.4)'; // red - decrease or same
   };
 
   const handleBackdropClick = (e: React.MouseEvent) => {
@@ -99,8 +131,8 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
 
   // Create SVG path for a segment
   const createSegmentPath = (index: number) => {
-    const startAngle = (index * segmentAngle - 90) * (Math.PI / 180);
-    const endAngle = ((index + 1) * segmentAngle - 90) * (Math.PI / 180);
+    const startAngle = (index * segmentAngle) * (Math.PI / 180);
+    const endAngle = ((index + 1) * segmentAngle) * (Math.PI / 180);
     const radius = 128; // Half of 256px wheel size
     
     const x1 = 128 + radius * Math.cos(startAngle);
@@ -151,19 +183,18 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
               background: `conic-gradient(from 0deg, ${colors.primary}, ${colors.secondary}, ${colors.primary})`,
             }}
           >
-            {/* SVG overlay for shaded segments */}
+            {/* SVG overlay for colored segments */}
             <svg
               className="absolute inset-0 w-full h-full"
               viewBox="0 0 256 256"
-              style={{ transform: 'rotate(0deg)' }}
             >
               {segments.map((value, index) => (
                 <path
                   key={`shade-${value}`}
                   d={createSegmentPath(index)}
-                  fill={getSegmentColor(value, oldValue)}
-                  stroke="rgba(255, 255, 255, 0.2)"
-                  strokeWidth="1"
+                  fill={getSegmentColor(value)}
+                  stroke="rgba(255, 255, 255, 0.3)"
+                  strokeWidth="2"
                 />
               ))}
             </svg>
@@ -192,26 +223,6 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
                 </div>
               ))}
             </div>
-
-            {/* Segment dividers */}
-            <svg className="absolute inset-0 w-full h-full" viewBox="0 0 256 256">
-              {segments.map((_, index) => {
-                const angle = (index * segmentAngle - 90) * (Math.PI / 180);
-                const x = 128 + 128 * Math.cos(angle);
-                const y = 128 + 128 * Math.sin(angle);
-                return (
-                  <line
-                    key={`divider-${index}`}
-                    x1="128"
-                    y1="128"
-                    x2={x}
-                    y2={y}
-                    stroke="rgba(255, 255, 255, 0.3)"
-                    strokeWidth="2"
-                  />
-                );
-              })}
-            </svg>
 
             {/* Center circle */}
             <div className="absolute inset-0 flex items-center justify-center">

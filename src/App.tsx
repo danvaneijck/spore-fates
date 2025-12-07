@@ -1,10 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { WalletConnect, walletStrategy } from './components/WalletConnect';
 import { SpinInterface } from './components/SpinInterface';
+import { SpinWheel } from './components/SpinWheel';
+import { ToastProvider } from './components/ToastProvider';
 import { Sprout, Github, Twitter, PlusCircle } from 'lucide-react';
 import { MsgBroadcaster } from "@injectivelabs/wallet-core";
-import { BrowserRouter, Routes, Route, useParams, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useParams } from 'react-router-dom';
 import { MushroomGallery } from './components/MushroomGallery';
+import { shroomService } from './services/shroomService';
+import { getNetworkEndpoints, Network } from '@injectivelabs/networks';
+import { NETWORK_CONFIG } from './config';
+import { parseSpinResult, SpinResult } from './utils/transactionParser';
+import { showTransactionToast } from './utils/toast';
 
 interface TraitExtension {
   cap: number;
@@ -14,33 +21,29 @@ interface TraitExtension {
 }
 
 const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTransaction, isLoading }) => {
-  const { tokenId } = useParams(); // Get ID from URL
-  const navigate = useNavigate();
+  const { tokenId } = useParams();
 
-  // Game State
   const [traits, setTraits] = useState<TraitExtension>({ cap: 0, stem: 0, spores: 0, substrate: 0 });
   const [pendingRewards, setPendingRewards] = useState('0');
   const [displayRewards, setDisplayRewards] = useState('0.00');
 
-  // Fetch data whenever ID or Address changes
+  // Spin wheel state
+  const [spinResult, setSpinResult] = useState<SpinResult | null>(null);
+  const [showWheel, setShowWheel] = useState(false);
+
   useEffect(() => {
     if (!address || !tokenId) {
-      // Reset if no token selected
       setTraits({ cap: 0, stem: 0, spores: 0, substrate: 0 });
       return;
     }
 
     const fetchData = async () => {
-      // 1. Fetch Traits
       const traitData = await shroomService.getShroomTraits(tokenId);
       if (traitData) setTraits(traitData);
 
-      // 2. Fetch ACCURATE Rewards (Use the new function)
       const rewards = await shroomService.getPendingRewards(tokenId);
-
       setPendingRewards(rewards);
 
-      // Calculate display (assuming 6 decimals, adjust to your config)
       const displayVal = (parseInt(rewards) / Math.pow(10, NETWORK_CONFIG.paymentDecimals));
       setDisplayRewards(displayVal.toFixed(2));
     };
@@ -48,17 +51,24 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
     fetchData();
   }, [address, tokenId, refreshTrigger]);
 
-  // Handlers wrapper to inject tokenId
   const onSpin = async (target) => {
     if (!tokenId) return;
     const msg = shroomService.makeSpinMsg(address, tokenId, target);
-    await executeTransaction(msg);
+    const result = await executeTransaction(msg, 'spin');
+    
+    if (result) {
+      const parsed = parseSpinResult(result);
+      if (parsed) {
+        setSpinResult(parsed);
+        setShowWheel(true);
+      }
+    }
   };
 
   const onHarvest = async () => {
     if (!tokenId) return;
     const msg = shroomService.makeHarvestMsg(address, tokenId);
-    await executeTransaction(msg);
+    await executeTransaction(msg, 'harvest');
     setPendingRewards('0');
     setDisplayRewards('0.00');
   };
@@ -66,7 +76,12 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
   const onAscend = async () => {
     if (!tokenId) return;
     const msg = shroomService.makeAscendMsg(address, tokenId);
-    await executeTransaction(msg);
+    await executeTransaction(msg, 'ascend');
+  };
+
+  const handleWheelComplete = () => {
+    setShowWheel(false);
+    setSpinResult(null);
   };
 
   if (!tokenId) {
@@ -82,15 +97,27 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
   }
 
   return (
-    <SpinInterface
-      tokenId={tokenId}
-      traits={traits}
-      onSpin={onSpin}
-      onHarvest={onHarvest}
-      onAscend={onAscend}
-      pendingRewards={displayRewards}
-      isLoading={isLoading}
-    />
+    <>
+      <SpinInterface
+        tokenId={tokenId}
+        traits={traits}
+        onSpin={onSpin}
+        onHarvest={onHarvest}
+        onAscend={onAscend}
+        pendingRewards={displayRewards}
+        isLoading={isLoading}
+      />
+      
+      {spinResult && (
+        <SpinWheel
+          isSpinning={showWheel}
+          oldValue={spinResult.oldValue}
+          newValue={spinResult.newValue}
+          traitTarget={spinResult.traitTarget}
+          onComplete={handleWheelComplete}
+        />
+      )}
+    </>
   );
 };
 
@@ -99,17 +126,18 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  // Helper to send transaction
-  const executeTransaction = async (msg: any) => {
+  const executeTransaction = async (msg: any, actionType: string = 'transaction') => {
     setIsLoading(true);
+    const toastId = showTransactionToast.loading(
+      actionType === 'spin' ? 'Spinning the wheel...' :
+      actionType === 'harvest' ? 'Harvesting rewards...' :
+      actionType === 'ascend' ? 'Attempting ascension...' :
+      actionType === 'mint' ? 'Minting mushroom...' :
+      'Processing transaction...'
+    );
+
     try {
-      // 1. Prepare transaction
-      // Injective uses a specific flow. For frontend, walletStrategy.sendTransaction is easiest
-      // but expects a formatted message.
-
-      const network =
-        NETWORK_CONFIG.network === "mainnet" ? Network.Mainnet : Network.Testnet;
-
+      const network = NETWORK_CONFIG.network === "mainnet" ? Network.Mainnet : Network.Testnet;
       const endpoints = getNetworkEndpoints(network);
 
       const broadcaster = new MsgBroadcaster({
@@ -125,15 +153,27 @@ function App() {
         injectiveAddress: address,
       });
 
-      console.log(result.txHash)
-      // 2. Optimistic update or wait for block
-      // Ideally wait for websocket or poll. For demo, we wait a few seconds then refresh.
+      showTransactionToast.dismiss(toastId);
+      showTransactionToast.success(
+        result.txHash,
+        actionType === 'spin' ? 'Spin successful!' :
+        actionType === 'harvest' ? 'Rewards harvested!' :
+        actionType === 'ascend' ? 'Ascension complete!' :
+        actionType === 'mint' ? 'Mushroom minted!' :
+        'Transaction successful!'
+      );
+
       await new Promise(resolve => setTimeout(resolve, 3000));
       setRefreshTrigger(prev => prev + 1);
 
-    } catch (e) {
+      return result;
+    } catch (e: any) {
       console.error('Transaction Failed:', e);
-      alert('Transaction failed! Check console for details.');
+      showTransactionToast.dismiss(toastId);
+      showTransactionToast.error(
+        e?.message || 'Transaction failed. Please try again.'
+      );
+      return null;
     } finally {
       setIsLoading(false);
     }
@@ -141,8 +181,8 @@ function App() {
 
   const handleMint = async () => {
     if (!address) return;
-    const msg = shroomService.makeMintMsg(address, "");
-    await executeTransaction(msg);
+    const msg = shroomService.makeMintMsg(address);
+    await executeTransaction(msg, 'mint');
   };
 
   const GalleryWrapper = ({ address, refreshTrigger }) => {
@@ -152,8 +192,8 @@ function App() {
 
   return (
     <BrowserRouter>
+      <ToastProvider />
       <div className="min-h-screen bg-background">
-        {/* Header */}
         <header className="border-b border-border bg-surface/50 backdrop-blur-sm sticky top-0 z-40">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-between h-20">
@@ -189,9 +229,7 @@ function App() {
           </div>
         </header>
 
-        {/* Main Content */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          {/* Hero Section */}
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-bold text-text mb-4">
               Evolve Your <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">Mushroom</span>
@@ -208,7 +246,7 @@ function App() {
                     <button
                       onClick={handleMint}
                       disabled={isLoading}
-                      className="flex items-center gap-2 text-sm text-primary hover:text-primary/80"
+                      className="flex items-center gap-2 text-sm text-primary hover:text-primary/80 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <PlusCircle size={16} />
                       Mint New Shroom
@@ -216,13 +254,10 @@ function App() {
                   </div>
                 )}
               </div>
-
             </div>
           </div>
 
           <div className="flex flex-col md:flex-row gap-8 items-start">
-
-            {/* Left Column: Gallery */}
             {address && (
               <div className="w-full md:w-auto">
                 <Routes>
@@ -232,7 +267,6 @@ function App() {
               </div>
             )}
 
-            {/* Right Column: Game Interface */}
             <div className="flex-1 w-full">
               {address ? (
                 <Routes>
@@ -259,7 +293,6 @@ function App() {
             </div>
           </div>
 
-          {/* Features */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-12">
             <div className="bg-surface rounded-2xl p-6 border border-border">
               <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-4">
@@ -273,7 +306,7 @@ function App() {
 
             <div className="bg-surface rounded-2xl p-6 border border-border">
               <div className="w-12 h-12 bg-success/10 rounded-xl flex items-center justify-center mb-4">
-                <TrendingUp size={24} className="text-success" />
+                <Sprout size={24} className="text-success" />
               </div>
               <h3 className="text-lg font-semibold text-text mb-2">Earn Rewards</h3>
               <p className="text-sm text-textSecondary">
@@ -283,7 +316,7 @@ function App() {
 
             <div className="bg-surface rounded-2xl p-6 border border-border">
               <div className="w-12 h-12 bg-warning/10 rounded-xl flex items-center justify-center mb-4">
-                <Award size={24} className="text-warning" />
+                <Sprout size={24} className="text-warning" />
               </div>
               <h3 className="text-lg font-semibold text-text mb-2">Prestige System</h3>
               <p className="text-sm text-textSecondary">
@@ -293,7 +326,6 @@ function App() {
           </div>
         </main>
 
-        {/* Footer */}
         <footer className="border-t border-border mt-20">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <div className="text-center text-sm text-textSecondary">
@@ -304,13 +336,7 @@ function App() {
         </footer>
       </div>
     </BrowserRouter>
-
   );
 }
 
 export default App;
-
-import { TrendingUp, Award } from 'lucide-react'; import { shroomService } from './services/shroomService';
-import { getNetworkEndpoints, Network } from '@injectivelabs/networks';
-import { NETWORK_CONFIG } from './config';
-

@@ -38,6 +38,7 @@ pub enum ExecuteMsg {
     Ascend {
         token_id: String,
     },
+    AcceptOwnership { cw721_contract: String },
 }
 
 #[cw_serde]

@@ -1,4 +1,5 @@
 use cosmwasm_schema::cw_serde;
+use cw_ownable::cw_ownable_execute;
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -15,6 +16,7 @@ pub struct TraitExtension {
     pub substrate: u8, // 0 to 4 (Prestige, never resets)
 }
 
+#[cw_ownable_execute]
 #[cw_serde]
 pub enum ExecuteMsg {
     /// Update traits - only callable by game controller
@@ -34,6 +36,7 @@ pub enum ExecuteMsg {
         recipient: String,
         token_id: String,
     },
+  
 }
 
 #[cw_serde]

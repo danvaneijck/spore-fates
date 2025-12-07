@@ -2,7 +2,7 @@ use cosmwasm_std::{
     entry_point, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult,
 };
 use cw721_base::Cw721Contract;
-
+use cw_ownable::update_ownership;
 pub mod msg;
 pub mod state;
 pub mod error;
@@ -64,6 +64,10 @@ pub fn execute(
             };
             Ok(base_contract.execute(deps, env, info, cw721_msg)?)
         }
+        ExecuteMsg::UpdateOwnership(action) => {
+            let ownership = update_ownership(deps, &env.block, &info.sender, action)?;
+            Ok(Response::new().add_attributes(ownership.into_attributes()))
+        },
     }
 }
 

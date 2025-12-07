@@ -535,6 +535,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cw-address-like"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73553ee4dad5b1678977ff603e72c3fdd41518ca2b0bd9b245b21e4c72eafa9e"
+dependencies = [
+ "cosmwasm-std 2.2.2",
+]
+
+[[package]]
 name = "cw-multi-test"
 version = "0.16.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -561,10 +570,25 @@ checksum = "093dfb4520c48b5848274dd88ea99e280a04bc08729603341c7fb0d758c74321"
 dependencies = [
  "cosmwasm-schema 1.5.11",
  "cosmwasm-std 1.5.11",
- "cw-address-like",
- "cw-ownable-derive",
+ "cw-address-like 1.0.4",
+ "cw-ownable-derive 0.5.1",
  "cw-storage-plus 1.2.0",
  "cw-utils 1.0.3",
+ "thiserror",
+]
+
+[[package]]
+name = "cw-ownable"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed2f8ee96ac5342c795a0610410998fc075a95af8c796b6d16479cdffd2471f1"
+dependencies = [
+ "cosmwasm-schema 2.2.2",
+ "cosmwasm-std 2.2.2",
+ "cw-address-like 2.0.0",
+ "cw-ownable-derive 0.6.0",
+ "cw-storage-plus 2.0.0",
+ "cw-utils 2.0.0",
  "thiserror",
 ]
 
@@ -573,6 +597,17 @@ name = "cw-ownable-derive"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1d3bf2e0f341bb6cc100d7d441d31cf713fbd3ce0c511f91e79f14b40a889af"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "cw-ownable-derive"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e69178d27793063dd13812777709cf7d7860ba35a598094d4bd89e1b30c9341"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -638,6 +673,19 @@ dependencies = [
  "cw2 1.1.2",
  "schemars",
  "semver",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "cw-utils"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07dfee7f12f802431a856984a32bce1cb7da1e6c006b5409e3981035ce562dec"
+dependencies = [
+ "cosmwasm-schema 2.2.2",
+ "cosmwasm-std 2.2.2",
+ "schemars",
  "serde",
  "thiserror",
 ]
@@ -736,7 +784,7 @@ checksum = "da518d9f68bfda7d972cbaca2e8fcf04651d0edc3de72b04ae2bcd9289c81614"
 dependencies = [
  "cosmwasm-schema 1.5.11",
  "cosmwasm-std 1.5.11",
- "cw-ownable",
+ "cw-ownable 0.5.1",
  "cw-storage-plus 1.2.0",
  "cw-utils 1.0.3",
  "cw2 1.1.2",
@@ -754,6 +802,7 @@ dependencies = [
  "cosmwasm-schema 1.5.11",
  "cosmwasm-std 1.5.11",
  "cw-multi-test",
+ "cw-ownable 0.5.1",
  "cw-storage-plus 1.2.0",
  "cw721 0.18.0",
  "cw721-base 0.18.0",
@@ -1601,6 +1650,7 @@ dependencies = [
  "cosmwasm-schema 2.2.2",
  "cosmwasm-std 2.2.2",
  "cw-multi-test",
+ "cw-ownable 2.1.0",
  "cw-storage-plus 2.0.0",
  "cw2 2.0.0",
  "cw721 0.18.0",

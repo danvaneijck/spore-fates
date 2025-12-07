@@ -1,3 +1,4 @@
+use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{
     entry_point, to_json_binary, Binary, Coin, Deps, DepsMut, Env, MessageInfo, Response,
     StdResult, Uint128, WasmMsg, BankMsg,
@@ -47,6 +48,11 @@ pub fn instantiate(
         .add_attribute("payment_denom", config.payment_denom))
 }
 
+#[cw_serde]
+pub enum Cw721OwnableMsg {
+    UpdateOwnership(cw_ownable::Action),
+}
+
 #[entry_point]
 pub fn execute(
     deps: DepsMut,
@@ -63,6 +69,24 @@ pub fn execute(
         }
         ExecuteMsg::Ascend { token_id } => {
             execute_ascend(deps, env, info, token_id)
+        }
+        ExecuteMsg::AcceptOwnership { cw721_contract } => {
+            // We must wrap AcceptOwnership inside UpdateOwnership
+            let inner_msg = Cw721OwnableMsg::UpdateOwnership(
+                cw_ownable::Action::AcceptOwnership
+            );
+            
+            let accept_msg = to_json_binary(&inner_msg)?;
+            
+            let wasm_msg = WasmMsg::Execute {
+                contract_addr: cw721_contract,
+                msg: accept_msg,
+                funds: vec![],
+            };
+            
+            Ok(Response::new()
+                .add_message(wasm_msg)
+                .add_attribute("action", "accept_ownership_proxy"))
         }
     }
 }

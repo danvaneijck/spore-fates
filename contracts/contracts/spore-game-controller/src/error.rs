@@ -1,4 +1,4 @@
-use cosmwasm_std::{StdError, OverflowError, DivideByZeroError};
+use cosmwasm_std::{DivideByZeroError, OverflowError, StdError};
 use thiserror::Error;
 
 #[derive(Error, Debug)]

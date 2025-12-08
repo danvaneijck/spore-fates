@@ -2,7 +2,7 @@ use cosmwasm_schema::cw_serde;
 use cosmwasm_std::Uint128;
 
 #[cw_serde]
-#[derive(Copy)]
+#[derive(Copy, Default)]
 pub struct TraitExtension {
     pub cap: i8,
     pub stem: i8,
@@ -40,7 +40,9 @@ pub enum ExecuteMsg {
         token_id: String,
     },
     Mint {},
-    AcceptOwnership { cw721_contract: String },
+    AcceptOwnership {
+        cw721_contract: String,
+    },
 }
 
 #[cw_serde]

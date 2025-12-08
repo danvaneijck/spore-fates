@@ -7,7 +7,7 @@ A strategy GameFi dApp where users evolve "Mushroom NFTs" by rolling mutable tra
 - **Mutable NFT Traits**: Cap, Stem, Spores (-3 to +3), and Substrate (0 to 4 prestige levels)
 - **Pyth-Based Randomness**: Synchronous PRNG using Pyth price feeds + block data
 - **Reward Distribution**: Share-based reward system with global pool
-- **Prestige System**: Ascend to higher substrate levels for permanent bonuses
+- **Prestige System**: Ascend to higher substrate levels for permanent multipliers and mechanics
 - **Beautiful UI**: React frontend with real-time mushroom visualization
 
 ## Architecture
@@ -25,24 +25,53 @@ A strategy GameFi dApp where users evolve "Mushroom NFTs" by rolling mutable tra
 
 ## Game Mechanics
 
+### Substrate Levels (Buffs & Trade-offs)
+Substrate determines your share of the global reward pool and unlocks specific gameplay mechanics.
+
+*   **Level 0 (Base)**
+    *   **Reward Share:** 1x Multiplier
+    *   *Standard Rules apply.*
+
+*   **Level 1 (Regrowth)**
+    *   **Reward Share:** 2x Multiplier
+    *   **Harvest Perk:** When harvesting, instead of resetting all stats to 0, one random stat will instantly start at **+1**.
+
+*   **Level 2 (Rooted)**
+    *   **Reward Share:** 3x Multiplier
+    *   **Spin Perk:** You gain protection at +1. If you fail a spin while a stat is at +1, it stays at +1 (instead of dropping to -1).
+    *   *Includes Level 1 Harvest Perk.*
+
+*   **Level 3 (Hardened)**
+    *   **Reward Share:** 4x Multiplier
+    *   **Difficulty Spike:** Success rate for spins decreases from ~50% to ~45%. High risk, high reward.
+    *   *Includes Level 1 & 2 Perks.*
+
+*   **Level 4 (Mycelial Network)**
+    *   **Reward Share:** 5x Multiplier
+    *   **Crit Perk:** On a successful spin, there is a **10% chance** to gain +2 stats instantly (skipping a level).
+    *   *Includes Level 1 & 2 Perks and Level 3 Difficulty.*
+
 ### Spin System
-- Cost: 1 SHROOM token
-- Success rate: 50% (55% at Substrate Level 3+)
-- Trait mutation rules:
-  - Win: -1 → +1, others increment
-  - Loss: +1 → -1 (protected at Substrate Level 2+), others decrement
-  - Substrate Level 4: 10% chance for +2 on win
+- **Cost:** 1 SHROOM token
+- **Success Rate:**
+  - Substrate 0-2: ~50% (Threshold 128/255)
+  - Substrate 3-4: ~45% (Threshold 140/255)
+- **Trait Mutation Rules:**
+  - **Win:** -1 → +1, others increment normally (Max +3)
+  - **Loss:** +1 → -1 (Protected at Substrate Lvl 2+), others decrement
+  - **Crit:** Substrate Lvl 4 has a chance to jump +2 on a win
 
 ### Harvest
-- Claim pending rewards
-- Reset traits to 0 (Substrate Level 1+ gives +1 to random trait)
-- Recalculate reward shares
+- Claims pending rewards (SHROOM).
+- Resets all traits to 0 (unless Substrate Level ≥ 1, see above).
+- Recalculates reward shares based on the reset traits.
 
 ### Ascend (Prestige)
-- Requires: All traits at +3
-- Cost: Burn pending rewards
-- Success: 20% chance to increase substrate level
-- Always resets traits to 0
+- **Requirement:** All 3 traits (Cap, Stem, Spores) must be at **+3**.
+- **Cost:** Burns all currently pending rewards.
+- **Success:** 20% chance to increase Substrate Level.
+- **Effect:** Always resets traits to 0, regardless of success.
+- **Max Level:** Substrate cannot go higher than 4.
 
 ## Installation
 
@@ -86,10 +115,9 @@ VITE_SPIN_COST=1000000
 
 ## Security Notes
 
-- Randomness uses Pyth price feeds + block data (not production-grade for high-value games)
-- Consider implementing VRF (Verifiable Random Function) for production
-- Audit smart contracts before mainnet deployment
-- Implement rate limiting and anti-bot measures
+- Randomness uses Pyth price feeds + block data (pseudo-randomness suitable for low-stakes; consider VRF for high-value production environments).
+- Audit smart contracts before mainnet deployment.
+- Implement rate limiting and anti-bot measures.
 
 ## License
 

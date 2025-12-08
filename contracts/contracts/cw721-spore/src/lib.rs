@@ -2,7 +2,6 @@ use cosmwasm_std::{entry_point, Binary, Deps, DepsMut, Env, MessageInfo, Respons
 use cw721::msg::NftExtensionMsg;
 use cw721_base::traits::{Cw721Execute, Cw721Query};
 use cw721_metadata_onchain::Cw721MetadataContract;
-use cw_ownable::update_ownership;
 
 pub mod error;
 pub mod msg;
@@ -68,6 +67,7 @@ pub fn execute(
             };
             Ok(base_contract.execute(deps, &env, &info, cw721_msg)?)
         }
+        // --- STANDARD CW721 LOGIC (Delegated) ---
         ExecuteMsg::TransferNft {
             recipient,
             token_id,
@@ -78,9 +78,55 @@ pub fn execute(
             };
             Ok(base_contract.execute(deps, &env, &info, cw721_msg)?)
         }
-        ExecuteMsg::UpdateOwnership(action) => {
-            let ownership = update_ownership(deps, &env.block, &info.sender, action)?;
-            Ok(Response::new().add_attributes(ownership.into_attributes()))
+        ExecuteMsg::SendNft {
+            contract,
+            token_id,
+            msg,
+        } => {
+            let cw721_msg = cw721_metadata_onchain::msg::ExecuteMsg::SendNft {
+                contract,
+                token_id,
+                msg,
+            };
+            Ok(base_contract.execute(deps, &env, &info, cw721_msg)?)
+        }
+        ExecuteMsg::Approve {
+            spender,
+            token_id,
+            expires,
+        } => {
+            let cw721_msg = cw721_metadata_onchain::msg::ExecuteMsg::Approve {
+                spender,
+                token_id,
+                expires,
+            };
+            Ok(base_contract.execute(deps, &env, &info, cw721_msg)?)
+        }
+        ExecuteMsg::Revoke { spender, token_id } => {
+            let cw721_msg = cw721_metadata_onchain::msg::ExecuteMsg::Revoke { spender, token_id };
+            Ok(base_contract.execute(deps, &env, &info, cw721_msg)?)
+        }
+        ExecuteMsg::ApproveAll { operator, expires } => {
+            let cw721_msg =
+                cw721_metadata_onchain::msg::ExecuteMsg::ApproveAll { operator, expires };
+            Ok(base_contract.execute(deps, &env, &info, cw721_msg)?)
+        }
+        ExecuteMsg::RevokeAll { operator } => {
+            let cw721_msg = cw721_metadata_onchain::msg::ExecuteMsg::RevokeAll { operator };
+            Ok(base_contract.execute(deps, &env, &info, cw721_msg)?)
+        }
+        ExecuteMsg::Burn { token_id } => {
+            let cw721_msg = cw721_metadata_onchain::msg::ExecuteMsg::Burn { token_id };
+            Ok(base_contract.execute(deps, &env, &info, cw721_msg)?)
+        }
+
+        ExecuteMsg::UpdateMinterOwnership(action) => {
+            let cw721_msg = cw721_metadata_onchain::msg::ExecuteMsg::UpdateMinterOwnership(action);
+            Ok(base_contract.execute(deps, &env, &info, cw721_msg)?)
+        }
+        ExecuteMsg::UpdateCreatorOwnership(action) => {
+            let cw721_msg = cw721_metadata_onchain::msg::ExecuteMsg::UpdateCreatorOwnership(action);
+            Ok(base_contract.execute(deps, &env, &info, cw721_msg)?)
         }
     }
 }
@@ -156,6 +202,7 @@ fn execute_update_traits(
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> Result<Binary, ContractError> {
     let base_contract = Cw721MetadataContract::default();
 
+    // Helper macro or manual mapping to standard query messages
     match msg {
         QueryMsg::OwnerOf {
             token_id,
@@ -167,8 +214,70 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> Result<Binary, ContractErro
             };
             Ok(base_contract.query(deps, &env, cw721_msg)?)
         }
+        QueryMsg::Approval {
+            token_id,
+            spender,
+            include_expired,
+        } => {
+            let cw721_msg = cw721_metadata_onchain::msg::QueryMsg::Approval {
+                token_id,
+                spender,
+                include_expired,
+            };
+            Ok(base_contract.query(deps, &env, cw721_msg)?)
+        }
+        QueryMsg::Approvals {
+            token_id,
+            include_expired,
+        } => {
+            let cw721_msg = cw721_metadata_onchain::msg::QueryMsg::Approvals {
+                token_id,
+                include_expired,
+            };
+            Ok(base_contract.query(deps, &env, cw721_msg)?)
+        }
+        QueryMsg::Operator {
+            owner,
+            operator,
+            include_expired,
+        } => {
+            let cw721_msg = cw721_metadata_onchain::msg::QueryMsg::Operator {
+                owner,
+                operator,
+                include_expired,
+            };
+            Ok(base_contract.query(deps, &env, cw721_msg)?)
+        }
+        QueryMsg::AllOperators {
+            owner,
+            include_expired,
+            start_after,
+            limit,
+        } => {
+            let cw721_msg = cw721_metadata_onchain::msg::QueryMsg::AllOperators {
+                owner,
+                include_expired,
+                start_after,
+                limit,
+            };
+            Ok(base_contract.query(deps, &env, cw721_msg)?)
+        }
+        QueryMsg::NumTokens {} => {
+            let cw721_msg = cw721_metadata_onchain::msg::QueryMsg::NumTokens {};
+            Ok(base_contract.query(deps, &env, cw721_msg)?)
+        }
         QueryMsg::NftInfo { token_id } => {
             let cw721_msg = cw721_metadata_onchain::msg::QueryMsg::NftInfo { token_id };
+            Ok(base_contract.query(deps, &env, cw721_msg)?)
+        }
+        QueryMsg::AllNftInfo {
+            token_id,
+            include_expired,
+        } => {
+            let cw721_msg = cw721_metadata_onchain::msg::QueryMsg::AllNftInfo {
+                token_id,
+                include_expired,
+            };
             Ok(base_contract.query(deps, &env, cw721_msg)?)
         }
         QueryMsg::Tokens {
@@ -181,6 +290,18 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> Result<Binary, ContractErro
                 start_after,
                 limit,
             };
+            Ok(base_contract.query(deps, &env, cw721_msg)?)
+        }
+        QueryMsg::AllTokens { start_after, limit } => {
+            let cw721_msg = cw721_metadata_onchain::msg::QueryMsg::AllTokens { start_after, limit };
+            Ok(base_contract.query(deps, &env, cw721_msg)?)
+        }
+        QueryMsg::Minter {} => {
+            let cw721_msg = cw721_metadata_onchain::msg::QueryMsg::GetMinterOwnership {};
+            Ok(base_contract.query(deps, &env, cw721_msg)?)
+        }
+        QueryMsg::GetCollectionInfoAndExtension {} => {
+            let cw721_msg = cw721_metadata_onchain::msg::QueryMsg::GetCollectionInfoAndExtension {};
             Ok(base_contract.query(deps, &env, cw721_msg)?)
         }
     }

@@ -193,15 +193,15 @@ echo ""
 # GAME_ADDRESS=inj1j845vkvvnr8m7v9s3emgme3sp5ru79mu8xvk6k
 
 # ------------------------------------------------------------------------------
-# STEP 4: TRANSFER OWNERSHIP (2-STEP PROCESS)
+# STEP 4: TRANSFER MINTER OWNERSHIP (2-STEP PROCESS)
 # ------------------------------------------------------------------------------
 
-echo "--- 4. Transferring Ownership of CW721 to Game ---"
+echo "--- 4. Transferring Minter Ownership of CW721 to Game ---"
 
 # 4a. Propose Transfer (CW721: update_ownership -> transfer_ownership)
 # This uses cw-ownable standard message
 PROPOSE_MSG=$(jq -n --arg new_owner "$GAME_ADDRESS" '{
-  update_ownership: {
+  update_minter_ownership: {
     transfer_ownership: {
       new_owner: $new_owner,
       expiry: null
@@ -215,13 +215,45 @@ echo "✅ Ownership offered to Game Contract."
 # 4b. Accept Transfer (Game: accept_ownership -> Calls CW721: accept_ownership)
 # This uses the custom function we added to the Game Controller
 ACCEPT_MSG=$(jq -n --arg cw721 "$CW721_ADDRESS" '{
-  accept_ownership: {
+  accept_minter_ownership: {
     cw721_contract: $cw721
   }
 }')
 
 execute_contract "$GAME_ADDRESS" "$ACCEPT_MSG" "Accept Ownership"
-echo "✅ Game Contract has accepted ownership."
+echo "✅ Game Contract has accepted minter ownership."
+echo ""
+
+# ------------------------------------------------------------------------------
+# STEP 4: TRANSFER OWNERSHIP (2-STEP PROCESS)
+# ------------------------------------------------------------------------------
+
+echo "--- 4. Transferring Creator Ownership of CW721 to Game ---"
+
+# 4a. Propose Transfer (CW721: update_ownership -> transfer_ownership)
+# This uses cw-ownable standard message
+PROPOSE_MSG=$(jq -n --arg new_owner "$GAME_ADDRESS" '{
+  update_creator_ownership: {
+    transfer_ownership: {
+      new_owner: $new_owner,
+      expiry: null
+    }
+  }
+}')
+
+execute_contract "$CW721_ADDRESS" "$PROPOSE_MSG" "Propose Transfer"
+echo "✅ Ownership offered to Game Contract."
+
+# 4b. Accept Transfer (Game: accept_ownership -> Calls CW721: accept_ownership)
+# This uses the custom function we added to the Game Controller
+ACCEPT_MSG=$(jq -n --arg cw721 "$CW721_ADDRESS" '{
+  accept_creator_ownership: {
+    cw721_contract: $cw721
+  }
+}')
+
+execute_contract "$GAME_ADDRESS" "$ACCEPT_MSG" "Accept Ownership"
+echo "✅ Game Contract has accepted creator ownership."
 echo ""
 
 # ==============================================================================

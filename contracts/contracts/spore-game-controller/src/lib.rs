@@ -1,10 +1,13 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{
-    entry_point, to_json_binary, BankMsg, Binary, Coin, Deps, DepsMut, Env, MessageInfo, Response,
-    StdResult, Uint128, WasmMsg,
+    entry_point, to_json_binary, BankMsg, Binary, Coin, Deps, DepsMut, Empty, Env, MessageInfo,
+    Response, StdResult, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 use sha2::{Digest, Sha256};
+
+// Import standard metadata types to parse responses
+use cw721::msg::NftExtensionMsg;
 
 pub mod error;
 pub mod msg;
@@ -21,6 +24,28 @@ use crate::state::{
 
 const CONTRACT_NAME: &str = "crates.io:spore-game-controller";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+// --- HELPER TO PARSE ATTRIBUTES BACK TO TRAITS ---
+fn parse_traits(extension: NftExtensionMsg) -> TraitExtension {
+    let attributes = extension.attributes.unwrap_or_default();
+
+    let get_val = |key: &str| -> String {
+        attributes
+            .iter()
+            .find(|t| t.trait_type == key)
+            .map(|t| t.value.clone())
+            .unwrap_or("0".to_string())
+    };
+
+    // Parse Strings back to numbers
+    TraitExtension {
+        cap: get_val("cap").parse().unwrap_or(0),
+        stem: get_val("stem").parse().unwrap_or(0),
+        spores: get_val("spores").parse().unwrap_or(0),
+        substrate: get_val("substrate").parse().unwrap_or(0),
+    }
+}
+// ------------------------------------------------
 
 #[entry_point]
 pub fn instantiate(
@@ -58,7 +83,8 @@ pub fn instantiate(
 
 #[cw_serde]
 pub enum Cw721OwnableMsg {
-    UpdateOwnership(cw_ownable::Action),
+    UpdateMinterOwnership(cw_ownable::Action),
+    UpdateCreatorOwnership(cw_ownable::Action),
 }
 
 #[entry_point]
@@ -76,10 +102,9 @@ pub fn execute(
         ExecuteMsg::Harvest { token_id } => execute_harvest(deps, env, info, token_id),
         ExecuteMsg::Ascend { token_id } => execute_ascend(deps, env, info, token_id),
         ExecuteMsg::Mint {} => execute_mint(deps, env, info),
-        ExecuteMsg::AcceptOwnership { cw721_contract } => {
-            // We must wrap AcceptOwnership inside UpdateOwnership
-            let inner_msg = Cw721OwnableMsg::UpdateOwnership(cw_ownable::Action::AcceptOwnership);
-
+        ExecuteMsg::AcceptMinterOwnership { cw721_contract } => {
+            let inner_msg =
+                Cw721OwnableMsg::UpdateMinterOwnership(cw_ownable::Action::AcceptOwnership);
             let accept_msg = to_json_binary(&inner_msg)?;
 
             let wasm_msg = WasmMsg::Execute {
@@ -90,34 +115,38 @@ pub fn execute(
 
             Ok(Response::new()
                 .add_message(wasm_msg)
-                .add_attribute("action", "accept_ownership_proxy"))
+                .add_attribute("action", "accept_minter_ownership_proxy"))
+        }
+        ExecuteMsg::AcceptCreatorOwnership { cw721_contract } => {
+            let inner_msg =
+                Cw721OwnableMsg::UpdateCreatorOwnership(cw_ownable::Action::AcceptOwnership);
+            let accept_msg = to_json_binary(&inner_msg)?;
+
+            let wasm_msg = WasmMsg::Execute {
+                contract_addr: cw721_contract,
+                msg: accept_msg,
+                funds: vec![],
+            };
+
+            Ok(Response::new()
+                .add_message(wasm_msg)
+                .add_attribute("action", "accept_creator_ownership_proxy"))
         }
     }
 }
 
-/// Get randomness using Pyth price feed + block data
 fn get_randomness(env: &Env, _deps: &DepsMut, nonce: u64) -> Result<u8, ContractError> {
     let mut hasher = Sha256::new();
-
-    // Add block time (nanoseconds)
     hasher.update(env.block.time.nanos().to_le_bytes());
-
-    // Add block height
     hasher.update(env.block.height.to_le_bytes());
-
-    // Add nonce
     hasher.update(nonce.to_le_bytes());
-
     let result = hasher.finalize();
-
-    // Return first byte as random number (0-255)
     Ok(result[0])
 }
 
 fn execute_mint(deps: DepsMut, _env: Env, info: MessageInfo) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
-    // 1. Payment Validation (Same as before)
     if config.mint_cost > Uint128::zero() {
         let payment = info
             .funds
@@ -130,22 +159,17 @@ fn execute_mint(deps: DepsMut, _env: Env, info: MessageInfo) -> Result<Response,
         }
     }
 
-    // 2. Get and Increment Counter
     let current_id_num = MINT_COUNTER.load(deps.storage)?;
     let next_id_num = current_id_num + 1;
     MINT_COUNTER.save(deps.storage, &next_id_num)?;
 
-    // Convert to String for CW721
     let token_id = current_id_num.to_string();
 
-    // 3. Initialize Default Traits
     let default_traits = TraitExtension::default();
     let initial_shares = calculate_shares(&default_traits);
 
-    // 4. Update Global State (Rewards)
     let mut global_state = GLOBAL_STATE.load(deps.storage)?;
 
-    // Distribute mint cost to existing holders
     if !global_state.total_shares.is_zero() && config.mint_cost > Uint128::zero() {
         let reward_per_share = config.mint_cost.checked_div(global_state.total_shares)?;
         global_state.global_reward_index = global_state
@@ -156,22 +180,21 @@ fn execute_mint(deps: DepsMut, _env: Env, info: MessageInfo) -> Result<Response,
     global_state.total_shares = global_state.total_shares.checked_add(initial_shares)?;
     GLOBAL_STATE.save(deps.storage, &global_state)?;
 
-    // 5. Save Token Info locally
     let token_info = TokenInfo {
         current_shares: initial_shares,
-        // Calculate debt based on NEW global index
         reward_debt: initial_shares.checked_mul(global_state.global_reward_index)?,
         pending_rewards: Uint128::zero(),
     };
     TOKEN_INFO.save(deps.storage, &token_id, &token_info)?;
 
-    // 6. Send Mint Message to CW721
+    // NOTE: We still send TraitExtension here.
+    // The CW721 contract knows how to handle this custom message and convert it.
     let mint_msg = WasmMsg::Execute {
         contract_addr: config.cw721_addr.to_string(),
         msg: to_json_binary(&Cw721ExecuteMsg::Mint {
             token_id: token_id.clone(),
             owner: info.sender.to_string(),
-            token_uri: None, // You could construct a URI here like "ipfs://.../{token_id}.json"
+            token_uri: None,
             extension: default_traits,
         })?,
         funds: vec![],
@@ -180,11 +203,10 @@ fn execute_mint(deps: DepsMut, _env: Env, info: MessageInfo) -> Result<Response,
     Ok(Response::new()
         .add_message(mint_msg)
         .add_attribute("action", "mint")
-        .add_attribute("token_id", token_id) // Returns the generated ID
+        .add_attribute("token_id", token_id)
         .add_attribute("owner", info.sender))
 }
 
-/// Calculate shares based on traits
 fn calculate_shares(traits: &TraitExtension) -> Uint128 {
     let base_shares = 100u128;
     let cap_bonus = (traits.cap as i128) * 10;
@@ -205,7 +227,6 @@ fn execute_spin(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
-    // 1. Validate payment
     let payment = info
         .funds
         .iter()
@@ -226,7 +247,6 @@ fn execute_spin(
             pending_rewards: Uint128::zero(),
         });
 
-    // 2. Harvest rewards from BEFORE this interaction
     if !token_info.current_shares.is_zero() && !global_state.total_shares.is_zero() {
         let pending = token_info
             .current_shares
@@ -235,15 +255,14 @@ fn execute_spin(
         token_info.pending_rewards = token_info.pending_rewards.checked_add(pending)?;
     }
 
-    // 3. Game Logic
-    let nft_info: cw721::msg::NftInfoResponse<TraitExtension> = deps.querier.query_wasm_smart(
+    let nft_info: cw721::msg::NftInfoResponse<NftExtensionMsg> = deps.querier.query_wasm_smart(
         config.cw721_addr.to_string(),
-        &cw721::msg::Cw721QueryMsg::<TraitExtension, (), ()>::NftInfo {
+        &cw721::msg::Cw721QueryMsg::<NftExtensionMsg, Empty, Empty>::NftInfo {
             token_id: token_id.clone(),
         },
     )?;
 
-    let mut traits = nft_info.extension;
+    let mut traits = parse_traits(nft_info.extension);
 
     let random_value = get_randomness(&env, &deps, global_state.spin_nonce)?;
     global_state.spin_nonce += 1;
@@ -283,7 +302,6 @@ fn execute_spin(
         TraitTarget::Spores => traits.spores = final_value,
     }
 
-    // 4. Update Shares (Global Denominator)
     let new_shares = calculate_shares(&traits);
 
     global_state.total_shares = global_state
@@ -291,7 +309,6 @@ fn execute_spin(
         .checked_sub(token_info.current_shares)?
         .checked_add(new_shares)?;
 
-    // 5. Update Index (Add Revenue)
     let old_index = global_state.global_reward_index;
 
     if !global_state.total_shares.is_zero() {
@@ -301,8 +318,7 @@ fn execute_spin(
             .checked_add(reward_per_share)?;
     }
     let new_index = global_state.global_reward_index;
-    // 6. Capture Self-Reward (The Fix)
-    // Credit user for the index jump caused by THEIR OWN spin cost
+
     let index_increase = new_index.checked_sub(old_index)?;
 
     if !new_shares.is_zero() {
@@ -310,16 +326,13 @@ fn execute_spin(
         token_info.pending_rewards = token_info.pending_rewards.checked_add(self_reward)?;
     }
 
-    // 7. Reset Debt
-    // Set debt to the NEW index so we don't claim these rewards again next time
     token_info.current_shares = new_shares;
     token_info.reward_debt = new_shares.checked_mul(new_index)?;
 
-    // Save state
     GLOBAL_STATE.save(deps.storage, &global_state)?;
     TOKEN_INFO.save(deps.storage, &token_id, &token_info)?;
 
-    // Update NFT traits
+    // Update traits (Sending back flat struct, CW721 handles conversion to attributes)
     let update_msg = WasmMsg::Execute {
         contract_addr: config.cw721_addr.to_string(),
         msg: to_json_binary(&crate::msg::Cw721ExecuteMsg::UpdateTraits {
@@ -347,10 +360,10 @@ fn execute_harvest(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
-    // 1. Verify ownership
+    // Verify ownership - Note generic type change to NftExtensionMsg
     let owner_response: cw721::msg::OwnerOfResponse = deps.querier.query_wasm_smart(
         config.cw721_addr.to_string(),
-        &cw721::msg::Cw721QueryMsg::<TraitExtension, (), ()>::OwnerOf {
+        &cw721::msg::Cw721QueryMsg::<NftExtensionMsg, Empty, Empty>::OwnerOf {
             token_id: token_id.clone(),
             include_expired: None,
         },
@@ -360,12 +373,9 @@ fn execute_harvest(
         return Err(ContractError::Unauthorized {});
     }
 
-    // Load state
     let mut token_info = TOKEN_INFO.load(deps.storage, &token_id)?;
     let mut global_state = GLOBAL_STATE.load(deps.storage)?;
 
-    // 2. CRITICAL FIX: Catch up rewards (Lazy Evaluation)
-    // Calculate rewards accrued since the last action until NOW
     if !token_info.current_shares.is_zero() {
         let accumulated = token_info
             .current_shares
@@ -376,12 +386,10 @@ fn execute_harvest(
         token_info.pending_rewards = token_info.pending_rewards.checked_add(accumulated)?;
     }
 
-    // 3. Check if there is anything to claim
     if token_info.pending_rewards.is_zero() {
         return Err(ContractError::NoRewards {});
     }
 
-    // 4. Send rewards to user
     let payout_amount = token_info.pending_rewards;
 
     let send_msg = BankMsg::Send {
@@ -392,25 +400,22 @@ fn execute_harvest(
         }],
     };
 
-    // 5. Reset Traits (Game Logic)
-    let nft_info: cw721::msg::NftInfoResponse<TraitExtension> = deps.querier.query_wasm_smart(
+    let nft_info: cw721::msg::NftInfoResponse<NftExtensionMsg> = deps.querier.query_wasm_smart(
         config.cw721_addr.to_string(),
-        &cw721::msg::Cw721QueryMsg::<TraitExtension, (), ()>::NftInfo {
+        &cw721::msg::Cw721QueryMsg::<NftExtensionMsg, Empty, Empty>::NftInfo {
             token_id: token_id.clone(),
         },
     )?;
 
-    let mut traits = nft_info.extension;
+    let mut traits = parse_traits(nft_info.extension);
+
     let substrate = traits.substrate;
 
-    // Reset stats
     traits.cap = 0;
     traits.stem = 0;
     traits.spores = 0;
 
-    // Substrate bonus logic
     if substrate >= 1 {
-        // Simple pseudo-random using the payout amount to determine bonus
         let random = (payout_amount.u128() % 3) as u8;
         match random {
             0 => traits.cap = 1,
@@ -419,25 +424,21 @@ fn execute_harvest(
         }
     }
 
-    // 6. Update Shares (Global State)
     let old_shares = token_info.current_shares;
-    let new_shares = calculate_shares(&traits); // Should return to baseline (e.g. 100)
+    let new_shares = calculate_shares(&traits);
 
     global_state.total_shares = global_state
         .total_shares
         .checked_sub(old_shares)?
         .checked_add(new_shares)?;
 
-    // 7. Reset User State
     token_info.current_shares = new_shares;
     token_info.pending_rewards = Uint128::zero();
     token_info.reward_debt = new_shares.checked_mul(global_state.global_reward_index)?;
 
-    // Save everything
     GLOBAL_STATE.save(deps.storage, &global_state)?;
     TOKEN_INFO.save(deps.storage, &token_id, &token_info)?;
 
-    // Update NFT
     let update_msg = WasmMsg::Execute {
         contract_addr: config.cw721_addr.to_string(),
         msg: to_json_binary(&crate::msg::Cw721ExecuteMsg::UpdateTraits {
@@ -463,10 +464,9 @@ fn execute_ascend(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
-    // Verify ownership
     let owner_response: cw721::msg::OwnerOfResponse = deps.querier.query_wasm_smart(
         config.cw721_addr.to_string(),
-        &cw721::msg::Cw721QueryMsg::<TraitExtension, (), ()>::OwnerOf {
+        &cw721::msg::Cw721QueryMsg::<NftExtensionMsg, Empty, Empty>::OwnerOf {
             token_id: token_id.clone(),
             include_expired: None,
         },
@@ -476,41 +476,35 @@ fn execute_ascend(
         return Err(ContractError::Unauthorized {});
     }
 
-    // Load current traits
-    let nft_info: cw721::msg::NftInfoResponse<TraitExtension> = deps.querier.query_wasm_smart(
+    let nft_info: cw721::msg::NftInfoResponse<NftExtensionMsg> = deps.querier.query_wasm_smart(
         config.cw721_addr.to_string(),
-        &cw721::msg::Cw721QueryMsg::<TraitExtension, (), ()>::NftInfo {
+        &cw721::msg::Cw721QueryMsg::<NftExtensionMsg, Empty, Empty>::NftInfo {
             token_id: token_id.clone(),
         },
     )?;
 
-    let mut traits = nft_info.extension;
+    let mut traits = parse_traits(nft_info.extension);
 
-    // Check if all traits are +3
     if traits.cap != 3 || traits.stem != 3 || traits.spores != 3 {
         return Err(ContractError::NotMaxLevel {});
     }
 
-    // Check substrate limit
     if traits.substrate >= 4 {
         return Err(ContractError::MaxSubstrate {});
     }
 
-    // Load token info and check rewards
     let mut token_info = TOKEN_INFO.load(deps.storage, &token_id)?;
 
     if token_info.pending_rewards.is_zero() {
         return Err(ContractError::NoRewards {});
     }
 
-    // Get randomness for 20% chance
     let mut global_state = GLOBAL_STATE.load(deps.storage)?;
     let random = get_randomness(&env, &deps, global_state.spin_nonce)?;
     global_state.spin_nonce += 1;
 
-    let success = random % 5 == 0; // 20% chance
+    let success = random % 5 == 0;
 
-    // Capture substrate value before modifying traits
     let new_substrate = if success {
         traits.substrate + 1
     } else {
@@ -521,17 +515,14 @@ fn execute_ascend(
         traits.substrate += 1;
     }
 
-    // Reset traits
     traits.cap = 0;
     traits.stem = 0;
     traits.spores = 0;
 
     let burned_amount = token_info.pending_rewards;
 
-    // Burn pending rewards
     token_info.pending_rewards = Uint128::zero();
 
-    // Update shares
     global_state.total_shares = global_state
         .total_shares
         .checked_sub(token_info.current_shares)?;
@@ -539,7 +530,6 @@ fn execute_ascend(
     global_state.total_shares = global_state.total_shares.checked_add(new_shares)?;
 
     if !global_state.total_shares.is_zero() {
-        // Multiply by Precision
         let reward_part = burned_amount.u128();
         let reward_per_share = reward_part / global_state.total_shares.u128();
 
@@ -554,7 +544,6 @@ fn execute_ascend(
     GLOBAL_STATE.save(deps.storage, &global_state)?;
     TOKEN_INFO.save(deps.storage, &token_id, &token_info)?;
 
-    // Update NFT
     let update_msg = WasmMsg::Execute {
         contract_addr: config.cw721_addr.to_string(),
         msg: to_json_binary(&crate::msg::Cw721ExecuteMsg::UpdateTraits {
@@ -624,9 +613,11 @@ mod tests {
     use super::*;
     use cosmwasm_std::testing::{message_info, mock_env, MockApi, MockQuerier, MockStorage};
     use cosmwasm_std::{
-        coins, from_json, Addr, OwnedDeps, SystemError, SystemResult, WasmQuery as CosmWasmQuery,
+        coins, from_json, Addr, ContractResult, OwnedDeps, SystemError, SystemResult,
+        WasmQuery as CosmWasmQuery,
     };
     use cw721::msg::{NftInfoResponse, OwnerOfResponse};
+    use cw721::state::Trait;
 
     const PAYMENT_DENOM: &str = "factory/creator/shroom";
 
@@ -658,8 +649,6 @@ mod tests {
         instantiate(deps, mock_env(), info, msg)
     }
 
-    // Mock querier that returns NFT info
-    // NOTE: We pass Addr here to ensure we match against valid Bech32 strings
     fn mock_querier_with_nft(
         querier: &mut MockQuerier,
         cw721_contract: &Addr,
@@ -670,12 +659,22 @@ mod tests {
         let cw721_str = cw721_contract.to_string();
         let token_id_str = token_id.to_string();
         let owner_str = owner.to_string();
+        let attributes: Vec<Trait> = traits.into();
 
         querier.update_wasm(move |query| match query {
             CosmWasmQuery::Smart { contract_addr, msg } => {
                 if contract_addr == &cw721_str {
-                    let parsed: cw721::msg::Cw721QueryMsg<TraitExtension, (), ()> =
-                        from_json(msg).unwrap();
+                    let parsed: cw721::msg::Cw721QueryMsg<NftExtensionMsg, Empty, Empty> =
+                        match from_json(&msg) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                return SystemResult::Err(SystemError::InvalidRequest {
+                                    error: format!("Parse error: {}", e),
+                                    request: msg.clone(),
+                                })
+                            }
+                        };
+
                     match parsed {
                         cw721::msg::Cw721QueryMsg::NftInfo {
                             token_id: query_token_id,
@@ -683,9 +682,21 @@ mod tests {
                             if query_token_id == token_id_str {
                                 let response = NftInfoResponse {
                                     token_uri: None,
-                                    extension: traits.clone(),
+                                    extension: NftExtensionMsg {
+                                        attributes: Some(attributes.clone()),
+                                        description: None,
+                                        name: None,
+                                        image: None,
+                                        image_data: None,
+                                        external_url: None,
+                                        background_color: None,
+                                        animation_url: None,
+                                        youtube_url: None,
+                                    },
                                 };
-                                SystemResult::Ok(to_json_binary(&response).into())
+                                SystemResult::Ok(ContractResult::Ok(
+                                    to_json_binary(&response).unwrap(),
+                                ))
                             } else {
                                 SystemResult::Err(SystemError::InvalidRequest {
                                     error: "Token not found".to_string(),
@@ -702,7 +713,9 @@ mod tests {
                                     owner: owner_str.clone(),
                                     approvals: vec![],
                                 };
-                                SystemResult::Ok(to_json_binary(&response).into())
+                                SystemResult::Ok(ContractResult::Ok(
+                                    to_json_binary(&response).unwrap(),
+                                ))
                             } else {
                                 SystemResult::Err(SystemError::InvalidRequest {
                                     error: "Token not found".to_string(),

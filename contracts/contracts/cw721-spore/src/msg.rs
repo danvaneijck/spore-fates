@@ -1,8 +1,8 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::CustomMsg;
+use cosmwasm_std::{Binary, CustomMsg};
 use cw721::msg::NftExtensionMsg;
 use cw721::state::Trait;
-use cw_ownable::cw_ownable_execute;
+use cw721::{Action, Expiration};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -66,7 +66,6 @@ impl From<TraitExtension> for NftExtensionMsg {
     }
 }
 
-#[cw_ownable_execute]
 #[cw_serde]
 pub enum ExecuteMsg {
     UpdateTraits {
@@ -79,24 +78,84 @@ pub enum ExecuteMsg {
         token_uri: Option<String>,
         extension: TraitExtension,
     },
+
+    // --- STANDARD CW721 EXECUTE MESSAGES ---
     TransferNft {
         recipient: String,
         token_id: String,
     },
+    SendNft {
+        contract: String,
+        token_id: String,
+        msg: Binary,
+    },
+    Approve {
+        spender: String,
+        token_id: String,
+        expires: Option<Expiration>,
+    },
+    Revoke {
+        spender: String,
+        token_id: String,
+    },
+    ApproveAll {
+        operator: String,
+        expires: Option<Expiration>,
+    },
+    RevokeAll {
+        operator: String,
+    },
+    Burn {
+        token_id: String,
+    },
+    UpdateMinterOwnership(Action),
+    UpdateCreatorOwnership(Action),
 }
 
 #[cw_serde]
 pub enum QueryMsg {
+    // --- STANDARD CW721 QUERY MESSAGES ---
     OwnerOf {
         token_id: String,
         include_expired: Option<bool>,
     },
+    Approval {
+        token_id: String,
+        spender: String,
+        include_expired: Option<bool>,
+    },
+    Approvals {
+        token_id: String,
+        include_expired: Option<bool>,
+    },
+    Operator {
+        owner: String,
+        operator: String,
+        include_expired: Option<bool>,
+    },
+    AllOperators {
+        owner: String,
+        include_expired: Option<bool>,
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
+    NumTokens {},
+    GetCollectionInfoAndExtension {},
     NftInfo {
         token_id: String,
+    },
+    AllNftInfo {
+        token_id: String,
+        include_expired: Option<bool>,
     },
     Tokens {
         owner: String,
         start_after: Option<String>,
         limit: Option<u32>,
     },
+    AllTokens {
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
+    Minter {},
 }

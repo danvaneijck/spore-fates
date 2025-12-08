@@ -29,7 +29,8 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
   pendingRewards,
   isLoading,
 }) => {
-  const score = traits.cap + traits.stem + traits.spores;
+
+  const score = Number(traits.cap) + Number(traits.stem) + Number(traits.spores);
   const canAscend = score === 9 && traits.substrate < 4;
   const hasRewards = parseFloat(pendingRewards) > 0;
 

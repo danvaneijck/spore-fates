@@ -43,7 +43,12 @@ export const shroomService = {
             );
 
             const data = JSON.parse(new TextDecoder().decode(response.data));
-            return data.extension;
+            const traits = data.extension.attributes.reduce((acc, curr) => {
+                acc[curr.trait_type] = curr.value;
+                return acc;
+            }, {});
+
+            return traits;
         } catch (error) {
             console.error("Error fetching traits:", error);
             return null;

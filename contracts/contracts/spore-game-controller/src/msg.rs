@@ -1,5 +1,6 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::Uint128;
+use cw721::state::Trait;
 
 #[cw_serde]
 #[derive(Copy, Default)]
@@ -8,6 +9,33 @@ pub struct TraitExtension {
     pub stem: i8,
     pub spores: i8,
     pub substrate: u8,
+}
+
+impl From<TraitExtension> for Vec<Trait> {
+    fn from(t: TraitExtension) -> Self {
+        vec![
+            Trait {
+                display_type: None,
+                trait_type: "cap".to_string(),
+                value: t.cap.to_string(),
+            },
+            Trait {
+                display_type: None,
+                trait_type: "stem".to_string(),
+                value: t.stem.to_string(),
+            },
+            Trait {
+                display_type: None,
+                trait_type: "spores".to_string(),
+                value: t.spores.to_string(),
+            },
+            Trait {
+                display_type: None,
+                trait_type: "substrate".to_string(),
+                value: t.substrate.to_string(),
+            },
+        ]
+    }
 }
 
 #[cw_serde]
@@ -40,7 +68,10 @@ pub enum ExecuteMsg {
         token_id: String,
     },
     Mint {},
-    AcceptOwnership {
+    AcceptMinterOwnership {
+        cw721_contract: String,
+    },
+    AcceptCreatorOwnership {
         cw721_contract: String,
     },
 }

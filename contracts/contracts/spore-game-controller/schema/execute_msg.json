@@ -1,0 +1,138 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ExecuteMsg",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "spin"
+      ],
+      "properties": {
+        "spin": {
+          "type": "object",
+          "required": [
+            "token_id",
+            "trait_target"
+          ],
+          "properties": {
+            "token_id": {
+              "type": "string"
+            },
+            "trait_target": {
+              "$ref": "#/definitions/TraitTarget"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "harvest"
+      ],
+      "properties": {
+        "harvest": {
+          "type": "object",
+          "required": [
+            "token_id"
+          ],
+          "properties": {
+            "token_id": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "ascend"
+      ],
+      "properties": {
+        "ascend": {
+          "type": "object",
+          "required": [
+            "token_id"
+          ],
+          "properties": {
+            "token_id": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "mint"
+      ],
+      "properties": {
+        "mint": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "accept_minter_ownership"
+      ],
+      "properties": {
+        "accept_minter_ownership": {
+          "type": "object",
+          "required": [
+            "cw721_contract"
+          ],
+          "properties": {
+            "cw721_contract": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "accept_creator_ownership"
+      ],
+      "properties": {
+        "accept_creator_ownership": {
+          "type": "object",
+          "required": [
+            "cw721_contract"
+          ],
+          "properties": {
+            "cw721_contract": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  ],
+  "definitions": {
+    "TraitTarget": {
+      "type": "string",
+      "enum": [
+        "cap",
+        "stem",
+        "spores"
+      ]
+    }
+  }
+}

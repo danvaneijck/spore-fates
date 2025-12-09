@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TraitExtension",
+  "type": "object",
+  "required": [
+    "cap",
+    "spores",
+    "stem",
+    "substrate"
+  ],
+  "properties": {
+    "cap": {
+      "type": "integer",
+      "format": "int8"
+    },
+    "spores": {
+      "type": "integer",
+      "format": "int8"
+    },
+    "stem": {
+      "type": "integer",
+      "format": "int8"
+    },
+    "substrate": {
+      "type": "integer",
+      "format": "uint8",
+      "minimum": 0.0
+    }
+  },
+  "additionalProperties": false
+}

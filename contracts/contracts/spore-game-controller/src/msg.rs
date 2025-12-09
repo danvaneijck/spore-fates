@@ -1,14 +1,6 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::Uint128;
-
-#[cw_serde]
-#[derive(Copy)]
-pub struct TraitExtension {
-    pub cap: i8,
-    pub stem: i8,
-    pub spores: i8,
-    pub substrate: u8,
-}
+use cosmwasm_std::{Decimal, Uint128};
+use spore_fates::game::GlobalBiomass;
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -40,33 +32,49 @@ pub enum ExecuteMsg {
         token_id: String,
     },
     Mint {},
-    AcceptOwnership { cw721_contract: String },
+    Splice {
+        parent_1_id: String,
+        parent_2_id: String,
+    },
+    AcceptMinterOwnership {
+        cw721_contract: String,
+    },
+    AcceptCreatorOwnership {
+        cw721_contract: String,
+    },
 }
 
 #[cw_serde]
 pub enum QueryMsg {
     Config {},
     GlobalState {},
+    GetEcosystemMetrics {},
     TokenInfo { token_id: String },
     GetPendingRewards { token_id: String },
+    GetGameStats {},
 }
 
 #[cw_serde]
 pub struct PendingRewardsResponse {
-    pub pending_rewards: Uint128,
+    pub accumulated_rewards: Uint128, // The "Raw" amount (Hidden/Potential)
+    pub canopy_multiplier: Decimal,   // The current weather (0.0 to 5.0)
+    pub estimated_payout: Uint128,    // What you get if you harvest NOW
 }
 
-// Message for calling CW721 contract
 #[cw_serde]
-pub enum Cw721ExecuteMsg {
-    UpdateTraits {
-        token_id: String,
-        traits: TraitExtension,
-    },
-    Mint {
-        token_id: String,
-        owner: String,
-        token_uri: Option<String>,
-        extension: TraitExtension,
-    },
+pub struct EcosystemMetricsResponse {
+    pub total_biomass: GlobalBiomass,
+    pub cap_multiplier: Decimal,
+    pub stem_multiplier: Decimal,
+    pub spores_multiplier: Decimal,
+}
+
+#[cw_serde]
+pub struct GameStatsResponse {
+    pub total_minted: u64,
+    pub total_burned: u64,
+    pub current_supply: u64,
+    pub total_spins: u64,
+    pub total_rewards_distributed: Uint128,
+    pub total_biomass: GlobalBiomass,
 }

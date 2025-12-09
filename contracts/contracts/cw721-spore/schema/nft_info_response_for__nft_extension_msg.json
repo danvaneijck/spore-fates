@@ -1,0 +1,117 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NftInfoResponse_for_NftExtensionMsg",
+  "type": "object",
+  "required": [
+    "extension"
+  ],
+  "properties": {
+    "extension": {
+      "description": "You can add any custom metadata here when you extend cw721-base",
+      "allOf": [
+        {
+          "$ref": "#/definitions/NftExtensionMsg"
+        }
+      ]
+    },
+    "token_uri": {
+      "description": "Universal resource identifier for this NFT Should point to a JSON file that conforms to the ERC721 Metadata JSON Schema",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "NftExtensionMsg": {
+      "type": "object",
+      "properties": {
+        "animation_url": {
+          "description": "NOTE: Empty string is handled as None",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "attributes": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/Trait"
+          }
+        },
+        "background_color": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "external_url": {
+          "description": "NOTE: Empty string is handled as None",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "image": {
+          "description": "NOTE: Empty string is handled as None",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "image_data": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "youtube_url": {
+          "description": "NOTE: Empty string is handled as None",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "Trait": {
+      "type": "object",
+      "required": [
+        "trait_type",
+        "value"
+      ],
+      "properties": {
+        "display_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trait_type": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

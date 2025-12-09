@@ -54,8 +54,8 @@ export function parseSpinResult(
         const tokenId = getAttr("token_id") || "";
         const traitTarget = (getAttr("trait_target")?.toLowerCase() ||
             "cap") as "cap" | "stem" | "spores";
-        const oldValue = parseInt(getAttr("old_value") || "0");
-        const newValue = parseInt(getAttr("new_value") || "0");
+        const oldValue = parseInt(getAttr("old_volatile") || "0");
+        const newValue = parseInt(getAttr("new_volatile") || "0");
 
         return {
             success,
@@ -69,3 +69,24 @@ export function parseSpinResult(
         return null;
     }
 }
+
+export const findAttribute = (
+    txResult: any,
+    eventType: string,
+    attrKey: string
+): string | null => {
+    try {
+        const events = txResult.events;
+        for (const event of events) {
+            if (event.type === "wasm-" + eventType || event.type === "wasm") {
+                const attr = event.attributes.find(
+                    (a: any) => a.key === attrKey
+                );
+                if (attr) return attr.value;
+            }
+        }
+    } catch (e) {
+        console.error("Error parsing logs", e);
+    }
+    return null;
+};

@@ -1,6 +1,7 @@
 use cosmwasm_std::StdError;
-use thiserror::Error;
+use cw721::error::Cw721ContractError;
 use cw_ownable::OwnershipError;
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ContractError {
@@ -10,18 +11,12 @@ pub enum ContractError {
     #[error(transparent)]
     Ownership(#[from] OwnershipError),
 
+    #[error(transparent)]
+    Cw721(#[from] Cw721ContractError),
+
     #[error("Unauthorized")]
     Unauthorized {},
 
     #[error("Invalid trait: {trait_name}")]
     InvalidTrait { trait_name: String },
-}
-
-impl From<cw721_base::ContractError> for ContractError {
-    fn from(err: cw721_base::ContractError) -> Self {
-        match err {
-            cw721_base::ContractError::Std(e) => ContractError::Std(e),
-            _ => ContractError::Std(StdError::generic_err(err.to_string())),
-        }
-    }
 }

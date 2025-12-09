@@ -1,5 +1,4 @@
 use cosmwasm_schema::cw_serde;
-use cw_ownable::cw_ownable_execute;
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -9,50 +8,49 @@ pub struct InstantiateMsg {
 }
 
 #[cw_serde]
-pub struct TraitExtension {
-    pub cap: i8,       // -3 to +3
-    pub stem: i8,      // -3 to +3
-    pub spores: i8,    // -3 to +3
-    pub substrate: u8, // 0 to 4 (Prestige, never resets)
-}
-
-#[cw_ownable_execute]
-#[cw_serde]
-pub enum ExecuteMsg {
-    /// Update traits - only callable by game controller
-    UpdateTraits {
-        token_id: String,
-        traits: TraitExtension,
-    },
-    /// Standard CW721 Mint
-    Mint {
-        token_id: String,
-        owner: String,
-        token_uri: Option<String>,
-        extension: TraitExtension,
-    },
-    /// Standard CW721 TransferNft
-    TransferNft {
-        recipient: String,
-        token_id: String,
-    },
-  
-}
-
-#[cw_serde]
 pub enum QueryMsg {
-    /// Standard CW721 OwnerOf
+    // --- STANDARD CW721 QUERY MESSAGES ---
     OwnerOf {
         token_id: String,
         include_expired: Option<bool>,
     },
-    /// Standard CW721 NftInfo
+    Approval {
+        token_id: String,
+        spender: String,
+        include_expired: Option<bool>,
+    },
+    Approvals {
+        token_id: String,
+        include_expired: Option<bool>,
+    },
+    Operator {
+        owner: String,
+        operator: String,
+        include_expired: Option<bool>,
+    },
+    AllOperators {
+        owner: String,
+        include_expired: Option<bool>,
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
+    NumTokens {},
+    GetCollectionInfoAndExtension {},
     NftInfo {
         token_id: String,
+    },
+    AllNftInfo {
+        token_id: String,
+        include_expired: Option<bool>,
     },
     Tokens {
         owner: String,
         start_after: Option<String>,
         limit: Option<u32>,
     },
+    AllTokens {
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
+    Minter {},
 }

@@ -27,6 +27,9 @@ pub enum ContractError {
     #[error("Already at max substrate level")]
     MaxSubstrate {},
 
+    #[error("Already at max substrate level")]
+    InvalidParents {},
+
     #[error("Overflow error: {0}")]
     Overflow(#[from] OverflowError),
 

@@ -21,3 +21,6 @@ serde = { version = "1.0", default-features = false, features = ["derive"] }
 thiserror = "1.0"
 ed25519-zebra = "4.1.0"
 
+spore-fates  = { path = "../../packages/spore-fates", default-features = false, version = "1.0.0" }
+
+

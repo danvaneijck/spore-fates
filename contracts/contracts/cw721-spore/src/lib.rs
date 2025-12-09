@@ -2,13 +2,14 @@ use cosmwasm_std::{entry_point, Binary, Deps, DepsMut, Env, MessageInfo, Respons
 use cw721::msg::NftExtensionMsg;
 use cw721_base::traits::{Cw721Execute, Cw721Query};
 use cw721_metadata_onchain::Cw721MetadataContract;
+use spore_fates::cw721::{ExecuteMsg, TraitExtension};
 
 pub mod error;
 pub mod msg;
 pub mod state;
 
 use crate::error::ContractError;
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, TraitExtension};
+use crate::msg::{InstantiateMsg, QueryMsg};
 
 pub type Extension = TraitExtension;
 
@@ -340,6 +341,10 @@ mod tests {
                 stem: 0,
                 spores: 0,
                 substrate: 0,
+                genes: vec![0, 0, 0, 0, 0, 0, 0, 0],
+                base_cap: 0,
+                base_stem: 0,
+                base_spores: 0,
             },
         };
         // Minter must sign mint message
@@ -398,6 +403,10 @@ mod tests {
             stem: -1,
             spores: 3,
             substrate: 1,
+            genes: vec![0, 0, 0, 0, 0, 0, 0, 0],
+            base_cap: 0,
+            base_stem: 0,
+            base_spores: 0,
         };
 
         let msg = ExecuteMsg::UpdateTraits {
@@ -453,6 +462,10 @@ mod tests {
             stem: 1,
             spores: 1,
             substrate: 0,
+            genes: vec![0, 0, 0, 0, 0, 0, 0, 0],
+            base_cap: 0,
+            base_stem: 0,
+            base_spores: 0,
         };
 
         let msg = ExecuteMsg::UpdateTraits {
@@ -482,6 +495,10 @@ mod tests {
             stem: 0,
             spores: 0,
             substrate: 0,
+            genes: vec![0, 0, 0, 0, 0, 0, 0, 0],
+            base_cap: 0,
+            base_stem: 0,
+            base_spores: 0,
         };
 
         let msg = ExecuteMsg::UpdateTraits {
@@ -499,6 +516,10 @@ mod tests {
             stem: 0,
             spores: 0,
             substrate: 5, // Invalid: max is 4
+            genes: vec![0, 0, 0, 0, 0, 0, 0, 0],
+            base_cap: 0,
+            base_stem: 0,
+            base_spores: 0,
         };
 
         let msg = ExecuteMsg::UpdateTraits {

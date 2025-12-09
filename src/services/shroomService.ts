@@ -16,6 +16,10 @@ export interface TraitExtension {
     stem: number;
     spores: number;
     substrate: number;
+    base_cap: number;
+    base_stem: number;
+    base_spores: number;
+    genome: number[]; // Parsed array of gene IDs
 }
 
 export interface TokenGameInfo {
@@ -24,33 +28,80 @@ export interface TokenGameInfo {
     pending_rewards: string;
 }
 
+export interface EcosystemMetrics {
+    total_biomass: {
+        total_base_cap: string;
+        total_base_stem: string;
+        total_base_spores: string;
+    };
+    cap_multiplier: string;
+    stem_multiplier: string;
+    spores_multiplier: string;
+}
+
 export const shroomService = {
     /**
      * Query the CW721 contract for a specific token's traits
      */
     async getShroomTraits(tokenId: string): Promise<TraitExtension | null> {
         try {
-            const queryMsg = {
-                nft_info: {
-                    token_id: tokenId,
-                },
-            };
-
-            // Query the contract directly
+            const queryMsg = { nft_info: { token_id: tokenId } };
             const response = await wasmApi.fetchSmartContractState(
                 NETWORK_CONFIG.cw721Address,
                 queryMsg
             );
 
             const data = JSON.parse(new TextDecoder().decode(response.data));
-            const traits = data.extension.attributes.reduce((acc, curr) => {
-                acc[curr.trait_type] = curr.value;
-                return acc;
-            }, {});
+            const rawTraits = data.extension.attributes.reduce(
+                (acc: any, curr: any) => {
+                    acc[curr.trait_type] = curr.value;
+                    return acc;
+                },
+                {}
+            );
 
-            return traits;
+            // Parse Genome String "[1, 2, 3]" -> [1, 2, 3]
+            let parsedGenome: number[] = [];
+            if (rawTraits.genome && typeof rawTraits.genome === "string") {
+                try {
+                    parsedGenome = JSON.parse(rawTraits.genome);
+                } catch (e) {
+                    console.warn(
+                        "Failed to parse genome string",
+                        rawTraits.genome
+                    );
+                }
+            }
+
+            return {
+                cap: parseInt(rawTraits.cap || "0"),
+                stem: parseInt(rawTraits.stem || "0"),
+                spores: parseInt(rawTraits.spores || "0"),
+                substrate: parseInt(rawTraits.substrate || "0"),
+                base_cap: parseInt(rawTraits.base_cap || "0"),
+                base_stem: parseInt(rawTraits.base_stem || "0"),
+                base_spores: parseInt(rawTraits.base_spores || "0"),
+                genome: parsedGenome,
+            };
         } catch (error) {
             console.error("Error fetching traits:", error);
+            return null;
+        }
+    },
+
+    /**
+     * Get the "Weather" (Multipliers)
+     */
+    async getEcosystemMetrics(): Promise<EcosystemMetrics | null> {
+        try {
+            const queryMsg = { get_ecosystem_metrics: {} };
+            const response = await wasmApi.fetchSmartContractState(
+                NETWORK_CONFIG.gameControllerAddress,
+                queryMsg
+            );
+            return JSON.parse(new TextDecoder().decode(response.data));
+        } catch (error) {
+            console.error("Error fetching ecosystem metrics:", error);
             return null;
         }
     },
@@ -72,6 +123,7 @@ export const shroomService = {
             );
 
             const data = JSON.parse(new TextDecoder().decode(response.data));
+            console.log(data);
             return data.pending_rewards;
         } catch (error) {
             console.error("Error fetching pending rewards:", error);
@@ -150,6 +202,21 @@ export const shroomService = {
                     Math.pow(10, NETWORK_CONFIG.paymentDecimals)
                 ).toFixed(0),
             },
+        });
+    },
+
+    makeSpliceMsg(userAddress: string, parent1Id: string, parent2Id: string) {
+        const msg = {
+            splice: {
+                parent_1_id: parent1Id,
+                parent_2_id: parent2Id,
+            },
+        };
+
+        return new MsgExecuteContract({
+            sender: userAddress,
+            contractAddress: NETWORK_CONFIG.gameControllerAddress,
+            msg: msg,
         });
     },
 

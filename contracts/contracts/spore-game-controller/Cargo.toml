@@ -19,5 +19,7 @@ thiserror = "1.0"
 sha2 = "0.10"
 ed25519-zebra = "4.1.0"
 
+spore-fates  = { path = "../../packages/spore-fates", default-features = false, version = "1.0.0" }
+
 
 [dev-dependencies]

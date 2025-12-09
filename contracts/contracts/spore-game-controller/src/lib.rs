@@ -1,13 +1,15 @@
+use std::str::FromStr;
+
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{
-    entry_point, to_json_binary, BankMsg, Binary, Coin, Deps, DepsMut, Empty, Env, MessageInfo,
-    Response, StdResult, Uint128, WasmMsg,
+    entry_point, to_json_binary, Addr, BankMsg, Binary, Coin, Decimal, Deps, DepsMut, Empty, Env,
+    MessageInfo, Response, StdResult, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
-use sha2::{Digest, Sha256};
-
-// Import standard metadata types to parse responses
 use cw721::msg::NftExtensionMsg;
+use sha2::{Digest, Sha256};
+use spore_fates::cw721::TraitExtension;
+use spore_fates::game::GlobalBiomass;
 
 pub mod error;
 pub mod msg;
@@ -15,20 +17,20 @@ pub mod state;
 
 use crate::error::ContractError;
 use crate::msg::{
-    Cw721ExecuteMsg, ExecuteMsg, InstantiateMsg, PendingRewardsResponse, QueryMsg, TraitExtension,
+    EcosystemMetricsResponse, ExecuteMsg, InstantiateMsg, PendingRewardsResponse, QueryMsg,
     TraitTarget,
 };
 use crate::state::{
-    Config, GlobalState, TokenInfo, CONFIG, GLOBAL_STATE, MINT_COUNTER, TOKEN_INFO,
+    GameConfig, GlobalState, TokenInfo, BIOMASS, CONFIG, GLOBAL_STATE, MINT_COUNTER, TOKEN_INFO,
 };
 
 const CONTRACT_NAME: &str = "crates.io:spore-game-controller";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-// --- HELPER TO PARSE ATTRIBUTES BACK TO TRAITS ---
 fn parse_traits(extension: NftExtensionMsg) -> TraitExtension {
     let attributes = extension.attributes.unwrap_or_default();
 
+    // Helper for numeric fields
     let get_val = |key: &str| -> String {
         attributes
             .iter()
@@ -37,15 +39,43 @@ fn parse_traits(extension: NftExtensionMsg) -> TraitExtension {
             .unwrap_or("0".to_string())
     };
 
-    // Parse Strings back to numbers
+    // Helper for the genome string
+    let get_str = |key: &str| -> String {
+        attributes
+            .iter()
+            .find(|t| t.trait_type == key)
+            .map(|t| t.value.clone())
+            .unwrap_or("[]".to_string())
+    };
+
+    // Parse Genes: "[1, 0, 4...]" -> Vec<u8>
+    let gene_string = get_str("genome");
+    let trimmed = gene_string.trim_matches(|c| c == '[' || c == ']');
+
+    let genes: Vec<u8> = if trimmed.is_empty() {
+        // If empty or just "[]", return empty vec (or default 8 zeros if you prefer)
+        vec![0; 8]
+    } else {
+        trimmed
+            .split(',')
+            .map(|s| s.trim().parse::<u8>().unwrap_or(0))
+            .collect()
+    };
+
     TraitExtension {
+        // Volatile Stats
         cap: get_val("cap").parse().unwrap_or(0),
         stem: get_val("stem").parse().unwrap_or(0),
         spores: get_val("spores").parse().unwrap_or(0),
         substrate: get_val("substrate").parse().unwrap_or(0),
+
+        // Genetics
+        genes,
+        base_cap: get_val("base_cap").parse().unwrap_or(0),
+        base_stem: get_val("base_stem").parse().unwrap_or(0),
+        base_spores: get_val("base_spores").parse().unwrap_or(0),
     }
 }
-// ------------------------------------------------
 
 #[entry_point]
 pub fn instantiate(
@@ -58,7 +88,7 @@ pub fn instantiate(
 
     MINT_COUNTER.save(deps.storage, &1u64)?;
 
-    let config = Config {
+    let config = GameConfig {
         payment_denom: msg.payment_denom,
         spin_cost: msg.spin_cost,
         mint_cost: msg.mint_cost,
@@ -73,8 +103,15 @@ pub fn instantiate(
         spin_nonce: 0u64,
     };
 
+    let biomass = GlobalBiomass {
+        total_base_cap: 0,
+        total_base_stem: 0,
+        total_base_spores: 0,
+    };
+
     CONFIG.save(deps.storage, &config)?;
     GLOBAL_STATE.save(deps.storage, &global_state)?;
+    BIOMASS.save(deps.storage, &biomass)?;
 
     Ok(Response::new()
         .add_attribute("action", "instantiate")
@@ -102,6 +139,10 @@ pub fn execute(
         ExecuteMsg::Harvest { token_id } => execute_harvest(deps, env, info, token_id),
         ExecuteMsg::Ascend { token_id } => execute_ascend(deps, env, info, token_id),
         ExecuteMsg::Mint {} => execute_mint(deps, env, info),
+        ExecuteMsg::Splice {
+            parent_1_id,
+            parent_2_id,
+        } => execute_splice(deps, env, info, parent_1_id, parent_2_id),
         ExecuteMsg::AcceptMinterOwnership { cw721_contract } => {
             let inner_msg =
                 Cw721OwnableMsg::UpdateMinterOwnership(cw_ownable::Action::AcceptOwnership);
@@ -144,9 +185,10 @@ fn get_randomness(env: &Env, _deps: &DepsMut, nonce: u64) -> Result<u8, Contract
     Ok(result[0])
 }
 
-fn execute_mint(deps: DepsMut, _env: Env, info: MessageInfo) -> Result<Response, ContractError> {
+fn execute_mint(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
+    // 1. Payment Logic
     if config.mint_cost > Uint128::zero() {
         let payment = info
             .funds
@@ -159,16 +201,57 @@ fn execute_mint(deps: DepsMut, _env: Env, info: MessageInfo) -> Result<Response,
         }
     }
 
+    // 2. Increment Mint Counter
     let current_id_num = MINT_COUNTER.load(deps.storage)?;
     let next_id_num = current_id_num + 1;
     MINT_COUNTER.save(deps.storage, &next_id_num)?;
-
     let token_id = current_id_num.to_string();
 
-    let default_traits = TraitExtension::default();
-    let initial_shares = calculate_shares(&default_traits);
-
+    // 3. Load Global State for Randomness
     let mut global_state = GLOBAL_STATE.load(deps.storage)?;
+
+    // 4. Generate Genetics
+    // We get a seed from the block/nonce
+    let seed_byte = get_randomness(&env, &deps, global_state.spin_nonce)?;
+    global_state.spin_nonce += 1; // Always increment nonce
+
+    // Expand the seed into 32 bytes using Sha256 so we have enough entropy for 8 genes
+    let mut hasher = Sha256::new();
+    hasher.update([seed_byte]);
+    hasher.update(env.block.time.nanos().to_be_bytes()); // Add extra salt
+    hasher.update(token_id.as_bytes()); // Add ID salt
+    let hash = hasher.finalize();
+
+    let mut new_genes: Vec<u8> = Vec::with_capacity(8);
+
+    // Iterate 8 times for 8 slots
+    for i in 0..8 {
+        let random_byte = hash[i]; // Take the i-th byte from the hash
+
+        // Tier 1 Generation Logic:
+        // 0 = Rot, 1 = Cap, 2 = Stem, 3 = Spores
+        // We use % 4. (Primordial '4' is not available in standard mint)
+        let gene = random_byte % 4;
+        new_genes.push(gene);
+    }
+
+    // 5. Create Trait Extension
+    let mut new_traits = TraitExtension {
+        cap: 0,
+        stem: 0,
+        spores: 0,
+        substrate: 0,
+        genes: new_genes,
+        base_cap: 0,    // Will calculate
+        base_stem: 0,   // Will calculate
+        base_spores: 0, // Will calculate
+    };
+
+    // Calculate Base Stats based on the genes we just generated
+    new_traits.recalculate_base_stats();
+
+    // 6. Calculate Shares & Rewards
+    let initial_shares = calculate_shares(&new_traits);
 
     if !global_state.total_shares.is_zero() && config.mint_cost > Uint128::zero() {
         let reward_per_share = config.mint_cost.checked_div(global_state.total_shares)?;
@@ -178,8 +261,17 @@ fn execute_mint(deps: DepsMut, _env: Env, info: MessageInfo) -> Result<Response,
     }
 
     global_state.total_shares = global_state.total_shares.checked_add(initial_shares)?;
+
+    // SAVE GLOBAL STATE
+    let mut biomass = BIOMASS.load(deps.storage)?;
+
+    // This helper handles both Biomass addition AND Share addition
+    add_stats_to_globals(&mut biomass, &mut global_state, &new_traits);
+
+    BIOMASS.save(deps.storage, &biomass)?;
     GLOBAL_STATE.save(deps.storage, &global_state)?;
 
+    // 7. Save Token Info
     let token_info = TokenInfo {
         current_shares: initial_shares,
         reward_debt: initial_shares.checked_mul(global_state.global_reward_index)?,
@@ -187,15 +279,15 @@ fn execute_mint(deps: DepsMut, _env: Env, info: MessageInfo) -> Result<Response,
     };
     TOKEN_INFO.save(deps.storage, &token_id, &token_info)?;
 
-    // NOTE: We still send TraitExtension here.
-    // The CW721 contract knows how to handle this custom message and convert it.
+    // 8. Mint Message (CW721)
+    // Note: The CW721 contract must be updated to accept the new TraitExtension struct
     let mint_msg = WasmMsg::Execute {
         contract_addr: config.cw721_addr.to_string(),
-        msg: to_json_binary(&Cw721ExecuteMsg::Mint {
+        msg: to_json_binary(&spore_fates::cw721::ExecuteMsg::Mint {
             token_id: token_id.clone(),
             owner: info.sender.to_string(),
             token_uri: None,
-            extension: default_traits,
+            extension: new_traits,
         })?,
         funds: vec![],
     };
@@ -208,13 +300,25 @@ fn execute_mint(deps: DepsMut, _env: Env, info: MessageInfo) -> Result<Response,
 }
 
 fn calculate_shares(traits: &TraitExtension) -> Uint128 {
-    let base_shares = 100u128;
-    let cap_bonus = (traits.cap as i128) * 10;
-    let stem_bonus = (traits.stem as i128) * 10;
-    let spores_bonus = (traits.spores as i128) * 10;
+    // OLD FORMULA: (100 + Volatile*10) * SubstrateMultiplier
+    // NEW FORMULA: ((Volatile + Base) * 10) * SubstrateMultiplier
+
+    let base_shares = 100i128;
+
+    // Combine Volatile (-3 to 3) + Base (0 to 10)
+    // Range per stat: -3 to 13
+    let cap_score = (traits.cap as i128) + (traits.base_cap as i128);
+    let stem_score = (traits.stem as i128) + (traits.base_stem as i128);
+    let spores_score = (traits.spores as i128) + (traits.base_spores as i128);
+
+    let total_stat_score = cap_score + stem_score + spores_score;
+
+    // Multiplier based on Substrate (0 = 1x, 4 = 5x)
     let substrate_multiplier = 1 + (traits.substrate as u128);
 
-    let total = (base_shares as i128 + cap_bonus + stem_bonus + spores_bonus).max(10) as u128;
+    // Calculate total
+    let total = (base_shares + (total_stat_score * 10)).max(10) as u128;
+
     Uint128::from(total * substrate_multiplier)
 }
 
@@ -227,6 +331,7 @@ fn execute_spin(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
+    // 1. Payment Check
     let payment = info
         .funds
         .iter()
@@ -237,8 +342,8 @@ fn execute_spin(
         return Err(ContractError::InsufficientFunds {});
     }
 
+    // 2. Load State
     let mut global_state = GLOBAL_STATE.load(deps.storage)?;
-
     let mut token_info = TOKEN_INFO
         .may_load(deps.storage, &token_id)?
         .unwrap_or(TokenInfo {
@@ -247,6 +352,7 @@ fn execute_spin(
             pending_rewards: Uint128::zero(),
         });
 
+    // 3. Accumulate existing rewards before modifying shares
     if !token_info.current_shares.is_zero() && !global_state.total_shares.is_zero() {
         let pending = token_info
             .current_shares
@@ -255,6 +361,7 @@ fn execute_spin(
         token_info.pending_rewards = token_info.pending_rewards.checked_add(pending)?;
     }
 
+    // 4. Fetch Traits
     let nft_info: cw721::msg::NftInfoResponse<NftExtensionMsg> = deps.querier.query_wasm_smart(
         config.cw721_addr.to_string(),
         &cw721::msg::Cw721QueryMsg::<NftExtensionMsg, Empty, Empty>::NftInfo {
@@ -264,44 +371,57 @@ fn execute_spin(
 
     let mut traits = parse_traits(nft_info.extension);
 
+    // 5. RNG
     let random_value = get_randomness(&env, &deps, global_state.spin_nonce)?;
     global_state.spin_nonce += 1;
 
+    // 6. Game Logic
     let success_threshold = if traits.substrate >= 3 { 140u8 } else { 128u8 };
     let is_success = random_value >= success_threshold;
 
-    let current_value = match trait_target {
-        TraitTarget::Cap => traits.cap,
-        TraitTarget::Stem => traits.stem,
-        TraitTarget::Spores => traits.spores,
+    // Identify which stat we are modifying
+    let (current_volatile, current_base) = match trait_target {
+        TraitTarget::Cap => (traits.cap, traits.base_cap),
+        TraitTarget::Stem => (traits.stem, traits.base_stem),
+        TraitTarget::Spores => (traits.spores, traits.base_spores),
     };
 
-    let new_value = if is_success {
-        if current_value == -1 {
-            1
+    let new_volatile = if is_success {
+        // WIN LOGIC
+        // Critical Hit: Substrate 4 has 10% chance to jump +2
+        if traits.substrate >= 4 && random_value % 10 == 0 {
+            (current_volatile + 2).min(3)
+        } else if current_volatile == -1 {
+            1 // Jump out of negative
         } else {
-            (current_value + 1).min(3)
+            (current_volatile + 1).min(3)
         }
-    } else if current_value == 1 && traits.substrate >= 2 {
-        current_value
-    } else if current_value == 1 {
-        -1
     } else {
-        (current_value - 1).max(-3)
+        // LOSS LOGIC
+        // Check Apex Immunity (Tier 4 / Base Stat 10)
+        if current_base >= 10 {
+            current_volatile // No penalty
+        }
+        // Check Substrate 2 "Rooted" Perk (Protected at +1)
+        else if current_volatile == 1 && traits.substrate >= 2 {
+            current_volatile // No penalty
+        }
+        // Standard Penalty
+        else if current_volatile == 1 {
+            -1 // Drop to negative
+        } else {
+            (current_volatile - 1).max(-3)
+        }
     };
 
-    let final_value = if is_success && traits.substrate >= 4 && random_value % 10 == 0 {
-        (new_value + 1).min(3)
-    } else {
-        new_value
-    };
-
+    // Apply changes
     match trait_target {
-        TraitTarget::Cap => traits.cap = final_value,
-        TraitTarget::Stem => traits.stem = final_value,
-        TraitTarget::Spores => traits.spores = final_value,
+        TraitTarget::Cap => traits.cap = new_volatile,
+        TraitTarget::Stem => traits.stem = new_volatile,
+        TraitTarget::Spores => traits.spores = new_volatile,
     }
 
+    // 7. Recalculate Shares (This now includes Base Stats via the updated helper)
     let new_shares = calculate_shares(&traits);
 
     global_state.total_shares = global_state
@@ -309,6 +429,7 @@ fn execute_spin(
         .checked_sub(token_info.current_shares)?
         .checked_add(new_shares)?;
 
+    // 8. Distribute Spin Cost to Global Pool
     let old_index = global_state.global_reward_index;
 
     if !global_state.total_shares.is_zero() {
@@ -317,8 +438,10 @@ fn execute_spin(
             .global_reward_index
             .checked_add(reward_per_share)?;
     }
-    let new_index = global_state.global_reward_index;
 
+    // 9. Instant Reward Update (Self-distribution)
+    // If the user owns shares, they immediately get a tiny slice of their own spin cost back
+    let new_index = global_state.global_reward_index;
     let index_increase = new_index.checked_sub(old_index)?;
 
     if !new_shares.is_zero() {
@@ -329,13 +452,14 @@ fn execute_spin(
     token_info.current_shares = new_shares;
     token_info.reward_debt = new_shares.checked_mul(new_index)?;
 
+    // 10. Save & Response
     GLOBAL_STATE.save(deps.storage, &global_state)?;
     TOKEN_INFO.save(deps.storage, &token_id, &token_info)?;
 
-    // Update traits (Sending back flat struct, CW721 handles conversion to attributes)
     let update_msg = WasmMsg::Execute {
         contract_addr: config.cw721_addr.to_string(),
-        msg: to_json_binary(&crate::msg::Cw721ExecuteMsg::UpdateTraits {
+        // Ensure we use the local Enum that supports traits
+        msg: to_json_binary(&spore_fates::cw721::ExecuteMsg::UpdateTraits {
             token_id: token_id.clone(),
             traits,
         })?,
@@ -348,8 +472,9 @@ fn execute_spin(
         .add_attribute("token_id", token_id)
         .add_attribute("trait_target", format!("{:?}", trait_target))
         .add_attribute("success", is_success.to_string())
-        .add_attribute("old_value", current_value.to_string())
-        .add_attribute("new_value", final_value.to_string()))
+        .add_attribute("base_stat", current_base.to_string())
+        .add_attribute("old_volatile", current_volatile.to_string())
+        .add_attribute("new_volatile", new_volatile.to_string()))
 }
 
 fn execute_harvest(
@@ -360,7 +485,7 @@ fn execute_harvest(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
-    // Verify ownership - Note generic type change to NftExtensionMsg
+    // 1. Verify Owner & Fetch Traits (Moved up because we need traits for Canopy calc)
     let owner_response: cw721::msg::OwnerOfResponse = deps.querier.query_wasm_smart(
         config.cw721_addr.to_string(),
         &cw721::msg::Cw721QueryMsg::<NftExtensionMsg, Empty, Empty>::OwnerOf {
@@ -373,9 +498,21 @@ fn execute_harvest(
         return Err(ContractError::Unauthorized {});
     }
 
+    let nft_info: cw721::msg::NftInfoResponse<NftExtensionMsg> = deps.querier.query_wasm_smart(
+        config.cw721_addr.to_string(),
+        &cw721::msg::Cw721QueryMsg::<NftExtensionMsg, Empty, Empty>::NftInfo {
+            token_id: token_id.clone(),
+        },
+    )?;
+
+    let mut traits = parse_traits(nft_info.extension);
+
+    // 2. Load State
     let mut token_info = TOKEN_INFO.load(deps.storage, &token_id)?;
     let mut global_state = GLOBAL_STATE.load(deps.storage)?;
+    let biomass = BIOMASS.load(deps.storage)?;
 
+    // 3. Accumulate Pending Rewards (Standard Staking Math)
     if !token_info.current_shares.is_zero() {
         let accumulated = token_info
             .current_shares
@@ -390,33 +527,56 @@ fn execute_harvest(
         return Err(ContractError::NoRewards {});
     }
 
-    let payout_amount = token_info.pending_rewards;
+    // 4. Apply Canopy Multiplier (The Weather)
+    // We calculate how valuable this mushroom is in the CURRENT economy
+    let multiplier = calculate_canopy_multiplier(&biomass, &traits);
 
-    let send_msg = BankMsg::Send {
-        to_address: info.sender.to_string(),
-        amount: vec![Coin {
-            denom: config.payment_denom.clone(),
-            amount: payout_amount,
-        }],
-    };
+    // Apply multiplier to the payout
+    // Payout = Pending * Multiplier
+    let payout_amount = token_info.pending_rewards.mul_floor(multiplier);
 
-    let nft_info: cw721::msg::NftInfoResponse<NftExtensionMsg> = deps.querier.query_wasm_smart(
-        config.cw721_addr.to_string(),
-        &cw721::msg::Cw721QueryMsg::<NftExtensionMsg, Empty, Empty>::NftInfo {
-            token_id: token_id.clone(),
-        },
-    )?;
+    if payout_amount.is_zero() {
+        // If they are in the Shadow Zone (Multiplier 0), they technically harvest nothing,
+        // but we still reset their pending rewards to 0 because they "spent" the harvest action.
+        // This prevents people from hoarding pending rewards forever until weather improves.
+        // (Game Design Choice: remove this line if you want them to keep pending rewards)
+        token_info.pending_rewards = Uint128::zero();
 
-    let mut traits = parse_traits(nft_info.extension);
+        // We still proceed to reset stats below...
+    }
 
+    // 5. Send Rewards (if any)
+    let mut messages: Vec<cosmwasm_std::CosmosMsg> = vec![];
+
+    if !payout_amount.is_zero() {
+        messages.push(
+            BankMsg::Send {
+                to_address: info.sender.to_string(),
+                amount: vec![Coin {
+                    denom: config.payment_denom.clone(),
+                    amount: payout_amount,
+                }],
+            }
+            .into(),
+        );
+    }
+
+    // 6. Reset Volatile Stats (Harvest Mechanic)
     let substrate = traits.substrate;
-
     traits.cap = 0;
     traits.stem = 0;
     traits.spores = 0;
 
+    // Substrate Perks
     if substrate >= 1 {
-        let random = (payout_amount.u128() % 3) as u8;
+        // If payout was 0 (Shadow Zone), random might be biased, but it doesn't matter much for game loop
+        let random_seed = if payout_amount.is_zero() {
+            info.sender.to_string().len() as u128
+        } else {
+            payout_amount.u128()
+        };
+
+        let random = (random_seed % 3) as u8;
         match random {
             0 => traits.cap = 1,
             1 => traits.stem = 1,
@@ -424,6 +584,8 @@ fn execute_harvest(
         }
     }
 
+    // 7. Recalculate Shares & Update Globals
+    // Note: Biomass doesn't change during harvest (Base stats are permanent), only Shares change (Volatile stats reset)
     let old_shares = token_info.current_shares;
     let new_shares = calculate_shares(&traits);
 
@@ -436,24 +598,30 @@ fn execute_harvest(
     token_info.pending_rewards = Uint128::zero();
     token_info.reward_debt = new_shares.checked_mul(global_state.global_reward_index)?;
 
+    // 8. Save
     GLOBAL_STATE.save(deps.storage, &global_state)?;
     TOKEN_INFO.save(deps.storage, &token_id, &token_info)?;
 
-    let update_msg = WasmMsg::Execute {
-        contract_addr: config.cw721_addr.to_string(),
-        msg: to_json_binary(&crate::msg::Cw721ExecuteMsg::UpdateTraits {
-            token_id: token_id.clone(),
-            traits,
-        })?,
-        funds: vec![],
-    };
+    // 9. Update NFT
+    messages.push(
+        WasmMsg::Execute {
+            contract_addr: config.cw721_addr.to_string(),
+            msg: to_json_binary(&spore_fates::cw721::ExecuteMsg::UpdateTraits {
+                token_id: token_id.clone(),
+                traits,
+            })?,
+            funds: vec![],
+        }
+        .into(),
+    );
 
     Ok(Response::new()
-        .add_message(send_msg)
-        .add_message(update_msg)
+        .add_messages(messages)
         .add_attribute("action", "harvest")
         .add_attribute("token_id", token_id)
-        .add_attribute("rewards_paid", payout_amount))
+        .add_attribute("base_payout", token_info.pending_rewards) // What they had pending
+        .add_attribute("canopy_multiplier", multiplier.to_string())
+        .add_attribute("final_payout", payout_amount))
 }
 
 fn execute_ascend(
@@ -546,7 +714,7 @@ fn execute_ascend(
 
     let update_msg = WasmMsg::Execute {
         contract_addr: config.cw721_addr.to_string(),
-        msg: to_json_binary(&crate::msg::Cw721ExecuteMsg::UpdateTraits {
+        msg: to_json_binary(&spore_fates::cw721::ExecuteMsg::UpdateTraits {
             token_id: token_id.clone(),
             traits,
         })?,
@@ -561,6 +729,210 @@ fn execute_ascend(
         .add_attribute("new_substrate", new_substrate.to_string()))
 }
 
+fn execute_splice(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    parent_1_id: String,
+    parent_2_id: String,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+
+    // Prevent splicing the same mushroom
+    if parent_1_id == parent_2_id {
+        return Err(ContractError::InvalidParents {});
+    }
+
+    // 1. Verify Ownership & Load Parents
+    let parent_1_traits =
+        load_and_verify_nft(&deps, &config.cw721_addr, &parent_1_id, &info.sender)?;
+    let parent_2_traits =
+        load_and_verify_nft(&deps, &config.cw721_addr, &parent_2_id, &info.sender)?;
+
+    // 2. Load Global States
+    let mut global_state = GLOBAL_STATE.load(deps.storage)?;
+    let mut biomass = BIOMASS.load(deps.storage)?;
+
+    // 3. Remove Parents from Ecosystem (Biomass & Shares)
+    // We must remove their stats from the global pools before we burn them
+    remove_stats_from_globals(&mut biomass, &mut global_state, &parent_1_traits);
+    remove_stats_from_globals(&mut biomass, &mut global_state, &parent_2_traits);
+
+    // Remove their pending rewards / share info from local state
+    // (In a full implementation, you might want to auto-claim rewards here,
+    // but for now we assume they are sacrificed)
+    TOKEN_INFO.remove(deps.storage, &parent_1_id);
+    TOKEN_INFO.remove(deps.storage, &parent_2_id);
+
+    // 4. Generate Child Genes
+    let mut child_genes: Vec<u8> = Vec::with_capacity(8);
+
+    // Use nonce for RNG
+    let seed = get_randomness(&env, &deps, global_state.spin_nonce)?;
+    global_state.spin_nonce += 1;
+
+    let mut hasher = Sha256::new();
+    hasher.update([seed]);
+    hasher.update(parent_1_id.as_bytes());
+    hasher.update(parent_2_id.as_bytes());
+    let hash = hasher.finalize();
+
+    for i in 0..8 {
+        let rng_byte = hash[i];
+
+        // 5% Mutation Chance (13/255 approx 5%)
+        if rng_byte < 13 {
+            // Mutation occurred!
+            // 10% Chance for Primordial (Ascension), 90% Rot
+            if rng_byte < 2 {
+                child_genes.push(4); // Primordial (Gold)
+            } else {
+                child_genes.push(0); // Rot (Grey)
+            }
+        } else {
+            // Standard Inheritance (50/50)
+            if rng_byte % 2 == 0 {
+                child_genes.push(parent_1_traits.genes.get(i).cloned().unwrap_or(0));
+            } else {
+                child_genes.push(parent_2_traits.genes.get(i).cloned().unwrap_or(0));
+            }
+        }
+    }
+
+    // 5. Create Child
+    let mut child_traits = TraitExtension {
+        cap: 0,
+        stem: 0,
+        spores: 0,
+        substrate: 0, // Volatile starts at 0
+        genes: child_genes,
+        base_cap: 0,
+        base_stem: 0,
+        base_spores: 0,
+    };
+    child_traits.recalculate_base_stats();
+
+    // 6. Add Child to Ecosystem
+    add_stats_to_globals(&mut biomass, &mut global_state, &child_traits);
+
+    // 7. Save Global Updates
+    BIOMASS.save(deps.storage, &biomass)?;
+    GLOBAL_STATE.save(deps.storage, &global_state)?;
+
+    // 8. Prepare Mint & Burn Messages
+    let current_id = MINT_COUNTER.load(deps.storage)?;
+    let child_id = (current_id + 1).to_string();
+    MINT_COUNTER.save(deps.storage, &(current_id + 1))?;
+
+    // Save Child TokenInfo
+    let child_shares = calculate_shares(&child_traits);
+    let child_info = TokenInfo {
+        current_shares: child_shares,
+        reward_debt: child_shares.checked_mul(global_state.global_reward_index)?,
+        pending_rewards: Uint128::zero(),
+    };
+    TOKEN_INFO.save(deps.storage, &child_id, &child_info)?;
+
+    // CW721 Messages
+    let burn_msg_1 = WasmMsg::Execute {
+        contract_addr: config.cw721_addr.to_string(),
+        msg: to_json_binary(&spore_fates::cw721::ExecuteMsg::Burn {
+            token_id: parent_1_id.clone(),
+        })?,
+        funds: vec![],
+    };
+    let burn_msg_2 = WasmMsg::Execute {
+        contract_addr: config.cw721_addr.to_string(),
+        msg: to_json_binary(&spore_fates::cw721::ExecuteMsg::Burn {
+            token_id: parent_2_id.clone(),
+        })?,
+        funds: vec![],
+    };
+    let mint_msg = WasmMsg::Execute {
+        contract_addr: config.cw721_addr.to_string(),
+        msg: to_json_binary(&spore_fates::cw721::ExecuteMsg::Mint {
+            token_id: child_id.clone(),
+            owner: info.sender.to_string(),
+            token_uri: None,
+            extension: child_traits,
+        })?,
+        funds: vec![],
+    };
+
+    Ok(Response::new()
+        .add_message(burn_msg_1)
+        .add_message(burn_msg_2)
+        .add_message(mint_msg)
+        .add_attribute("action", "splice")
+        .add_attribute("parent_1", parent_1_id)
+        .add_attribute("parent_2", parent_2_id)
+        .add_attribute("child_id", child_id))
+}
+
+fn load_and_verify_nft(
+    deps: &DepsMut,
+    contract: &Addr,
+    token_id: &str,
+    owner: &Addr,
+) -> Result<TraitExtension, ContractError> {
+    // 1. Check Owner
+    let owner_res: cw721::msg::OwnerOfResponse = deps.querier.query_wasm_smart(
+        contract.to_string(),
+        &cw721::msg::Cw721QueryMsg::<TraitExtension, Empty, Empty>::OwnerOf {
+            token_id: token_id.to_owned(),
+            include_expired: None,
+        },
+    )?;
+
+    if owner_res.owner != owner.to_string() {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    // 2. Get Traits
+    let nft_info: cw721::msg::NftInfoResponse<NftExtensionMsg> = deps.querier.query_wasm_smart(
+        contract.to_string(),
+        &cw721::msg::Cw721QueryMsg::<NftExtensionMsg, Empty, Empty>::NftInfo {
+            token_id: token_id.to_owned(),
+        },
+    )?;
+
+    Ok(parse_traits(nft_info.extension))
+}
+
+// Logic to add a mushroom's stats to the global counters
+fn add_stats_to_globals(
+    biomass: &mut GlobalBiomass,
+    global_state: &mut GlobalState,
+    traits: &TraitExtension,
+) {
+    biomass.total_base_cap += traits.base_cap as u128;
+    biomass.total_base_stem += traits.base_stem as u128;
+    biomass.total_base_spores += traits.base_spores as u128;
+
+    let shares = calculate_shares(traits);
+    global_state.total_shares += shares;
+}
+
+// Logic to remove a mushroom's stats from the global counters
+fn remove_stats_from_globals(
+    biomass: &mut GlobalBiomass,
+    global_state: &mut GlobalState,
+    traits: &TraitExtension,
+) {
+    biomass.total_base_cap = biomass
+        .total_base_cap
+        .saturating_sub(traits.base_cap as u128);
+    biomass.total_base_stem = biomass
+        .total_base_stem
+        .saturating_sub(traits.base_stem as u128);
+    biomass.total_base_spores = biomass
+        .total_base_spores
+        .saturating_sub(traits.base_spores as u128);
+
+    let shares = calculate_shares(traits);
+    global_state.total_shares = global_state.total_shares.saturating_sub(shares);
+}
+
 #[entry_point]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
@@ -572,14 +944,16 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::GetPendingRewards { token_id } => {
             to_json_binary(&query_pending_rewards(deps, token_id)?)
         }
+        QueryMsg::GetEcosystemMetrics {} => to_json_binary(&query_ecosystem_metrics(deps)?),
     }
 }
 
 // Helper function to calculate rewards on the fly
 fn query_pending_rewards(deps: Deps, token_id: String) -> StdResult<PendingRewardsResponse> {
     let global_state = GLOBAL_STATE.load(deps.storage)?;
+    let biomass = BIOMASS.load(deps.storage)?;
+    let config = CONFIG.load(deps.storage)?;
 
-    // Attempt to load token info. If it doesn't exist, rewards are 0.
     let token_info = match TOKEN_INFO.may_load(deps.storage, &token_id)? {
         Some(info) => info,
         None => {
@@ -589,22 +963,119 @@ fn query_pending_rewards(deps: Deps, token_id: String) -> StdResult<PendingRewar
         }
     };
 
-    // Start with what is already stored on the "sticky note"
-    let mut total_rewards = token_info.pending_rewards;
+    // 1. Calculate Raw Pending (Standard)
+    let mut raw_pending = token_info.pending_rewards;
 
-    // Calculate the gap between current global index and the user's debt
     if !token_info.current_shares.is_zero() {
-        let accumulated_since_last_action = token_info
+        let accumulated = token_info
             .current_shares
             .checked_mul(global_state.global_reward_index)?
             .checked_sub(token_info.reward_debt)
-            .unwrap_or(Uint128::zero()); // Safety catch for underflow (shouldn't happen)
-
-        total_rewards = total_rewards.checked_add(accumulated_since_last_action)?;
+            .unwrap_or(Uint128::zero());
+        raw_pending = raw_pending.checked_add(accumulated)?;
     }
 
+    if raw_pending.is_zero() {
+        return Ok(PendingRewardsResponse {
+            pending_rewards: Uint128::zero(),
+        });
+    }
+
+    // 2. Fetch Traits to calculate Weather
+    // Note: We are in a Query context, so we can only do Queries.
+    let nft_info: cw721::msg::NftInfoResponse<NftExtensionMsg> = deps.querier.query_wasm_smart(
+        config.cw721_addr.to_string(),
+        &cw721::msg::Cw721QueryMsg::<NftExtensionMsg, Empty, Empty>::NftInfo {
+            token_id: token_id.clone(),
+        },
+    )?;
+    let traits = parse_traits(nft_info.extension);
+
+    // 3. Apply Multiplier
+    let multiplier = calculate_canopy_multiplier(&biomass, &traits);
+    let final_rewards = raw_pending.mul_floor(multiplier);
+
     Ok(PendingRewardsResponse {
-        pending_rewards: total_rewards,
+        pending_rewards: final_rewards,
+    })
+}
+
+fn calculate_canopy_multiplier(biomass: &GlobalBiomass, traits: &TraitExtension) -> Decimal {
+    let total_mass = biomass.total_base_cap + biomass.total_base_stem + biomass.total_base_spores;
+
+    // If ecosystem is empty or mushroom has no genes, return standard 1.0 (or 0 if no genes)
+    if total_mass == 0 {
+        return Decimal::one();
+    }
+    let user_base_total = traits.base_cap + traits.base_stem + traits.base_spores;
+    if user_base_total == 0 {
+        return Decimal::one();
+    }
+
+    // Target is perfect equilibrium (33% split)
+    let target_ratio = Decimal::from_ratio(1u128, 3u128); // 0.333...
+
+    // Helper to get multiplier for a specific trait type
+    let get_trait_mult = |trait_mass: u128| -> Decimal {
+        if trait_mass == 0 {
+            // If this trait doesn't exist in the pool yet, it is infinitely valuable.
+            // Cap at 5x to prevent exploits.
+            Decimal::from_str("5.0").unwrap()
+        } else {
+            let actual_ratio = Decimal::from_ratio(trait_mass, total_mass);
+            // Multiplier = Target / Actual
+            target_ratio / actual_ratio
+        }
+    };
+
+    let cap_mult = get_trait_mult(biomass.total_base_cap);
+    let stem_mult = get_trait_mult(biomass.total_base_stem);
+    let spores_mult = get_trait_mult(biomass.total_base_spores);
+
+    // Calculate User's "Canopy Score"
+    // Score = (Base * Mult) + ...
+    let score_cap = Decimal::from_ratio(traits.base_cap, 1u128) * cap_mult;
+    let score_stem = Decimal::from_ratio(traits.base_stem, 1u128) * stem_mult;
+    let score_spores = Decimal::from_ratio(traits.base_spores, 1u128) * spores_mult;
+
+    let total_score = score_cap + score_stem + score_spores;
+
+    // Calculate Efficiency (Score / Raw Stats)
+    let efficiency = total_score / Decimal::from_ratio(user_base_total, 1u128);
+
+    // Shadow Zone Logic:
+    // If your efficiency is below 0.8 (meaning you are mostly composed of oversaturated traits),
+    // you are in the shadow and earn 0.
+    if efficiency < Decimal::from_str("0.8").unwrap() {
+        return Decimal::zero();
+    }
+
+    // Otherwise, return the efficiency as the reward multiplier
+    efficiency
+}
+
+fn query_ecosystem_metrics(deps: Deps) -> StdResult<EcosystemMetricsResponse> {
+    let biomass = BIOMASS.load(deps.storage)?;
+
+    let total_mass = biomass.total_base_cap + biomass.total_base_stem + biomass.total_base_spores;
+    let target_ratio = Decimal::from_ratio(1u128, 3u128);
+
+    let calc_mult = |mass: u128| -> Decimal {
+        if total_mass == 0 {
+            return Decimal::one();
+        }
+        if mass == 0 {
+            return Decimal::from_str("5.0").unwrap();
+        }
+        let actual_ratio = Decimal::from_ratio(mass, total_mass);
+        target_ratio / actual_ratio
+    };
+
+    Ok(EcosystemMetricsResponse {
+        total_biomass: biomass.clone(),
+        cap_multiplier: calc_mult(biomass.total_base_cap),
+        stem_multiplier: calc_mult(biomass.total_base_stem),
+        spores_multiplier: calc_mult(biomass.total_base_spores),
     })
 }
 
@@ -755,7 +1226,7 @@ mod tests {
         // Query config
         let query_msg = QueryMsg::Config {};
         let res = query(deps.as_ref(), mock_env(), query_msg).unwrap();
-        let config: Config = from_json(&res).unwrap();
+        let config: GameConfig = from_json(&res).unwrap();
 
         assert_eq!(config.payment_denom, PAYMENT_DENOM);
         assert_eq!(config.spin_cost, Uint128::new(1_000_000));
@@ -778,6 +1249,10 @@ mod tests {
             stem: 0,
             spores: 0,
             substrate: 0,
+            genes: vec![0, 0, 0, 0, 0, 0, 0, 0],
+            base_cap: 0,
+            base_stem: 0,
+            base_spores: 0,
         };
         assert_eq!(calculate_shares(&traits), Uint128::new(100));
 
@@ -787,6 +1262,10 @@ mod tests {
             stem: 1,
             spores: 3,
             substrate: 0,
+            genes: vec![0, 0, 0, 0, 0, 0, 0, 0],
+            base_cap: 0,
+            base_stem: 0,
+            base_spores: 0,
         };
         assert_eq!(calculate_shares(&traits), Uint128::new(160)); // 100 + 20 + 10 + 30
 
@@ -796,6 +1275,10 @@ mod tests {
             stem: 1,
             spores: 1,
             substrate: 2,
+            genes: vec![0, 0, 0, 0, 0, 0, 0, 0],
+            base_cap: 0,
+            base_stem: 0,
+            base_spores: 0,
         };
         assert_eq!(calculate_shares(&traits), Uint128::new(390)); // (100 + 30) * 3
 
@@ -805,6 +1288,10 @@ mod tests {
             stem: -1,
             spores: -3,
             substrate: 0,
+            genes: vec![0, 0, 0, 0, 0, 0, 0, 0],
+            base_cap: 0,
+            base_stem: 0,
+            base_spores: 0,
         };
         assert_eq!(calculate_shares(&traits), Uint128::new(40)); // 100 - 20 - 10 - 30
     }
@@ -869,6 +1356,10 @@ mod tests {
             stem: 0,
             spores: 0,
             substrate: 0,
+            genes: vec![0, 0, 0, 0, 0, 0, 0, 0],
+            base_cap: 0,
+            base_stem: 0,
+            base_spores: 0,
         };
         mock_querier_with_nft(&mut deps.querier, &cw721, "1", &owner, traits);
 
@@ -968,6 +1459,10 @@ mod tests {
             stem: 3,
             spores: 3,
             substrate: 0,
+            genes: vec![0, 0, 0, 0, 0, 0, 0, 0],
+            base_cap: 0,
+            base_stem: 0,
+            base_spores: 0,
         };
         mock_querier_with_nft(&mut deps.querier, &cw721, "1", &owner, traits);
 
@@ -997,6 +1492,10 @@ mod tests {
             stem: 3,
             spores: 3,
             substrate: 4,
+            genes: vec![0, 0, 0, 0, 0, 0, 0, 0],
+            base_cap: 0,
+            base_stem: 0,
+            base_spores: 0,
         };
         mock_querier_with_nft(&mut deps.querier, &cw721, "1", &owner, traits);
 

@@ -39,7 +39,7 @@ export const MushroomGallery: React.FC<Props> = ({ address, currentTokenId, refr
     if (!address) return null;
 
     return (
-        <div className="w-full max-w-sm bg-surface/50 border border-border rounded-xl p-4 h-fit">
+        <div className="m-auto max-w-sm bg-surface/50 border border-border rounded-xl p-4 h-fit mb-5">
             <h3 className="text-text font-bold mb-4 flex items-center gap-2">
                 <Sprout size={18} />
                 Your Colony ({tokens.length})

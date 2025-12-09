@@ -1,30 +1,34 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { WalletConnect, walletStrategy } from './components/WalletConnect';
 import { SpinInterface } from './components/SpinInterface';
 import { SpinWheel } from './components/SpinWheel';
 import { MintInterface } from './components/MintInterface';
 import { ToastProvider } from './components/ToastProvider';
-import { Sprout, Github, Twitter } from 'lucide-react';
+import { Sprout, Github, Twitter, Home, BookOpen } from 'lucide-react';
 import { MsgBroadcaster } from "@injectivelabs/wallet-core";
-import { BrowserRouter, Routes, Route, useParams } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useParams, Link } from 'react-router-dom';
 import { MushroomGallery } from './components/MushroomGallery';
-import { shroomService } from './services/shroomService';
+import { EcosystemMetrics, shroomService, TraitExtension } from './services/shroomService';
 import { getNetworkEndpoints, Network } from '@injectivelabs/networks';
 import { NETWORK_CONFIG } from './config';
 import { parseSpinResult, SpinResult } from './utils/transactionParser';
 import { showTransactionToast } from './utils/toast';
+import { EcosystemWeather } from './components/EcosystemWeather';
+import { About } from './pages/about';
 
-interface TraitExtension {
-  cap: number;
-  stem: number;
-  spores: number;
-  substrate: number;
-}
+
 
 const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTransaction, isLoading }) => {
   const { tokenId } = useParams();
 
-  const [traits, setTraits] = useState<TraitExtension>({ cap: 0, stem: 0, spores: 0, substrate: 0 });
+  const [traits, setTraits] = useState<TraitExtension>({
+    cap: 0, stem: 0, spores: 0, substrate: 0,
+    base_cap: 0, base_stem: 0, base_spores: 0,
+    genome: []
+  });
+
+  const [metrics, setMetrics] = useState<EcosystemMetrics | null>(null);
+
   const [pendingRewards, setPendingRewards] = useState('0');
   const [displayRewards, setDisplayRewards] = useState('0.00');
 
@@ -34,26 +38,23 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
   const [pendingTraitUpdate, setPendingTraitUpdate] = useState<TraitExtension | null>(null);
 
   useEffect(() => {
-    if (!address || !tokenId) {
-      setTraits({ cap: 0, stem: 0, spores: 0, substrate: 0 });
-      return;
-    }
+    if (!address || !tokenId) return;
 
     const fetchData = async () => {
+      // 1. Fetch Traits
       const traitData = await shroomService.getShroomTraits(tokenId);
       if (traitData) {
-        // Only update traits if we don't have a pending update (wheel is not showing)
-        if (!showWheel) {
-          setTraits(traitData);
-        } else {
-          // Store the new traits to apply after wheel is dismissed
-          setPendingTraitUpdate(traitData);
-        }
+        if (!showWheel) setTraits(traitData);
+        else setPendingTraitUpdate(traitData);
       }
 
+      // 2. Fetch Global Weather
+      const weatherData = await shroomService.getEcosystemMetrics();
+      setMetrics(weatherData);
+
+      // 3. Fetch Rewards
       const rewards = await shroomService.getPendingRewards(tokenId);
       setPendingRewards(rewards);
-
       const displayVal = (parseInt(rewards) / Math.pow(10, NETWORK_CONFIG.paymentDecimals));
       setDisplayRewards(displayVal.toFixed(2));
     };
@@ -118,7 +119,9 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
   }
 
   return (
-    <>
+    <div className="max-w-screen-xl m-auto bg-surface rounded-3xl p-6 border border-border h-full">
+      <EcosystemWeather metrics={metrics} />
+
       <SpinInterface
         tokenId={tokenId}
         traits={traits}
@@ -138,7 +141,7 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
           onComplete={handleWheelComplete}
         />
       )}
-    </>
+    </div>
   );
 };
 
@@ -218,7 +221,9 @@ function App() {
         <header className="border-b border-border bg-surface/50 backdrop-blur-sm sticky top-0 z-40">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-between h-20">
-              <div className="flex items-center gap-3">
+
+              {/* Logo */}
+              <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
                 <div className="w-12 h-12 bg-gradient-to-br from-primary to-secondary rounded-2xl flex items-center justify-center">
                   <Sprout size={28} className="text-white" />
                 </div>
@@ -226,23 +231,24 @@ function App() {
                   <h1 className="text-2xl font-bold text-text">SporeFates</h1>
                   <p className="text-xs text-textSecondary">Evolve Your Mushroom NFTs</p>
                 </div>
-              </div>
+              </Link>
 
+              {/* Navigation Links */}
+              <nav className="hidden md:flex items-center gap-1 bg-surface border border-border rounded-full px-2 py-1">
+                <Link to="/" className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-text hover:text-primary rounded-full hover:bg-background transition-all">
+                  <Home size={16} /> Colony
+                </Link>
+                <Link to="/about" className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-text hover:text-primary rounded-full hover:bg-background transition-all">
+                  <BookOpen size={16} /> Rules & Mechanics
+                </Link>
+              </nav>
+
+              {/* Socials */}
               <div className="flex items-center gap-4">
-                <a
-                  href="https://github.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-2 hover:bg-background rounded-lg transition-colors"
-                >
+                <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="p-2 hover:bg-background rounded-lg transition-colors">
                   <Github size={20} className="text-textSecondary hover:text-text" />
                 </a>
-                <a
-                  href="https://twitter.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-2 hover:bg-background rounded-lg transition-colors"
-                >
+                <a href="https://twitter.com" target="_blank" rel="noopener noreferrer" className="p-2 hover:bg-background rounded-lg transition-colors">
                   <Twitter size={20} className="text-textSecondary hover:text-text" />
                 </a>
               </div>
@@ -250,7 +256,7 @@ function App() {
           </div>
         </header>
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <main className=" mx-auto px-4 sm:px-6 lg:px-4 py-12">
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-bold text-text mb-4">
               Evolve Your <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">Mushroom</span>
@@ -265,51 +271,50 @@ function App() {
           </div>
 
 
+          {address && (
+            <div className="w-full">
+              <Routes>
+                <Route path="/play/:tokenId" element={<GalleryWrapper address={address} refreshTrigger={refreshTrigger} />} />
+                <Route path="*" element={<GalleryWrapper address={address} refreshTrigger={refreshTrigger} />} />
+              </Routes>
+            </div>
+          )}
 
-          {/* Main Content Grid - Fixed column widths */}
-          <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-8 items-start">
-            {/* Left Column - Gallery (Fixed width) */}
-            {address && (
-              <div className="w-full lg:w-[320px]">
-                <Routes>
-                  <Route path="/play/:tokenId" element={<GalleryWrapper address={address} refreshTrigger={refreshTrigger} />} />
-                  <Route path="*" element={<GalleryWrapper address={address} refreshTrigger={refreshTrigger} />} />
-                </Routes>
-              </div>
-            )}
+          <Routes>
+            <Route path="/about" element={<About />} />
+          </Routes>
 
-            {/* Right Column - Game/Mint Interface (Flexible) */}
-            {address && (
-              <div className="flex-1 min-h-[600px] mb-10">
-                <Routes>
-                  <Route path="/play/:tokenId" element={
-                    <GameContainer
-                      address={address}
-                      refreshTrigger={refreshTrigger}
-                      setRefreshTrigger={setRefreshTrigger}
-                      executeTransaction={executeTransaction}
-                      isLoading={isLoading}
-                    />
-                  } />
-                  <Route path="*" element={
-                    <div className="bg-surface rounded-3xl p-4 md:p-12 border border-border text-center h-full flex items-center justify-center min-h-[600px]">
-                      <div>
-                        <Sprout size={64} className="text-primary mx-auto mb-4 opacity-50" />
-                        <p className="text-textSecondary text-lg">Select a mushroom from your colony to start playing</p>
-                      </div>
+
+          {/* Right Column - Game/Mint Interface (Flexible) */}
+          {address && (
+            <div className="flex-1 min-h-[600px] mb-10">
+              <Routes>
+                <Route path="/play/:tokenId" element={
+                  <GameContainer
+                    address={address}
+                    refreshTrigger={refreshTrigger}
+                    setRefreshTrigger={setRefreshTrigger}
+                    executeTransaction={executeTransaction}
+                    isLoading={isLoading}
+                  />
+                } />
+                <Route path="*" element={
+                  <div className="bg-surface rounded-3xl p-4 md:p-12 border border-border text-center h-full flex items-center justify-center min-h-[600px]">
+                    <div>
+                      <Sprout size={64} className="text-primary mx-auto mb-4 opacity-50" />
+                      <p className="text-textSecondary text-lg">Select a mushroom from your colony to start playing</p>
                     </div>
-                  } />
-                </Routes>
+                  </div>
+                } />
+              </Routes>
 
-              </div>
-            )}
-          </div>
+            </div>
+          )}
+
 
           <div className=''>
             <MintInterface onMint={handleMint} isLoading={isLoading} />
-
           </div>
-
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-12">
             <div className="bg-surface rounded-2xl p-6 border border-border">

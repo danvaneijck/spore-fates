@@ -2,13 +2,8 @@ import React from 'react';
 import { MushroomRenderer } from './MushroomRenderer';
 import { Sparkles, TrendingUp, Award, Loader2 } from 'lucide-react';
 import { NETWORK_CONFIG } from '../config';
-
-interface TraitExtension {
-  cap: number;
-  stem: number;
-  spores: number;
-  substrate: number;
-}
+import { TraitExtension } from '../services/shroomService';
+import { GeneticsDisplay } from './GeneticsDisplay';
 
 interface SpinInterfaceProps {
   tokenId: string;
@@ -30,11 +25,22 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
   isLoading,
 }) => {
 
-  const score = Number(traits.cap) + Number(traits.stem) + Number(traits.spores);
-  const canAscend = score === 9 && traits.substrate < 4;
+  // Calculate Totals (Volatile + Base)
+  const totalCap = Number(traits.cap) + Number(traits.base_cap || 0);
+  const totalStem = Number(traits.stem) + Number(traits.base_stem || 0);
+  const totalSpores = Number(traits.spores) + Number(traits.base_spores || 0);
+
+  // Total Power determines yield weight
+  const totalPower = totalCap + totalStem + totalSpores;
+
+  // Ascension Requirement: Volatile stats must be exactly +3
+  const isMaxVolatile = traits.cap === 3 && traits.stem === 3 && traits.spores === 3;
+  const canAscend = isMaxVolatile && traits.substrate < 4;
+
   const hasRewards = parseFloat(pendingRewards) > 0;
 
   const getTraitColor = (value: number) => {
+    if (value >= 5) return 'text-yellow-400'; // High base stats
     if (value >= 2) return 'text-success';
     if (value >= 0) return 'text-text';
     return 'text-error';
@@ -57,34 +63,62 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
             </p>
           </div>
           <div className="text-right">
-            <div className="text-3xl font-bold text-text">{score > 0 ? '+' : ''}{score}</div>
-            <div className="text-xs text-textSecondary">Total Score</div>
+            <div className="text-3xl font-bold text-text">{totalPower > 0 ? '+' : ''}{totalPower}</div>
+            <div className="text-xs text-textSecondary">Total Power</div>
           </div>
         </div>
 
         <MushroomRenderer traits={traits} />
 
-        {/* Trait Stats */}
+        {/* Trait Stats Breakdown */}
         <div className="grid grid-cols-3 gap-4 mt-6">
-          <div className="bg-background rounded-xl p-4 text-center">
-            <div className="text-xs text-textSecondary mb-1">Cap</div>
-            <div className={`text-2xl font-bold ${getTraitColor(traits.cap)}`}>
-              {traits.cap > 0 ? '+' : ''}{traits.cap}
+          {/* CAP */}
+          <div className="bg-background rounded-xl p-3 text-center border border-border/50">
+            <div className="text-xs text-textSecondary mb-1 uppercase tracking-wider">Cap</div>
+            <div className={`text-2xl font-bold ${getTraitColor(totalCap)}`}>
+              {totalCap > 0 ? '+' : ''}{totalCap}
+            </div>
+            <div className="text-[10px] text-textSecondary mt-1 flex justify-center gap-1">
+              <span>{traits.cap > 0 ? '+' : ''}{traits.cap} V</span>
+              <span className="text-border">|</span>
+              <span className="text-primary">{traits.base_cap > 0 ? '+' : ''}{traits.base_cap} B</span>
             </div>
           </div>
-          <div className="bg-background rounded-xl p-4 text-center">
-            <div className="text-xs text-textSecondary mb-1">Stem</div>
-            <div className={`text-2xl font-bold ${getTraitColor(traits.stem)}`}>
-              {traits.stem > 0 ? '+' : ''}{traits.stem}
+
+          {/* STEM */}
+          <div className="bg-background rounded-xl p-3 text-center border border-border/50">
+            <div className="text-xs text-textSecondary mb-1 uppercase tracking-wider">Stem</div>
+            <div className={`text-2xl font-bold ${getTraitColor(totalStem)}`}>
+              {totalStem > 0 ? '+' : ''}{totalStem}
+            </div>
+            <div className="text-[10px] text-textSecondary mt-1 flex justify-center gap-1">
+              <span>{traits.stem > 0 ? '+' : ''}{traits.stem} V</span>
+              <span className="text-border">|</span>
+              <span className="text-primary">{traits.base_stem > 0 ? '+' : ''}{traits.base_stem} B</span>
             </div>
           </div>
-          <div className="bg-background rounded-xl p-4 text-center">
-            <div className="text-xs text-textSecondary mb-1">Spores</div>
-            <div className={`text-2xl font-bold ${getTraitColor(traits.spores)}`}>
-              {traits.spores > 0 ? '+' : ''}{traits.spores}
+
+          {/* SPORES */}
+          <div className="bg-background rounded-xl p-3 text-center border border-border/50">
+            <div className="text-xs text-textSecondary mb-1 uppercase tracking-wider">Spores</div>
+            <div className={`text-2xl font-bold ${getTraitColor(totalSpores)}`}>
+              {totalSpores > 0 ? '+' : ''}{totalSpores}
+            </div>
+            <div className="text-[10px] text-textSecondary mt-1 flex justify-center gap-1">
+              <span>{traits.spores > 0 ? '+' : ''}{traits.spores} V</span>
+              <span className="text-border">|</span>
+              <span className="text-primary">{traits.base_spores > 0 ? '+' : ''}{traits.base_spores} B</span>
             </div>
           </div>
         </div>
+
+        <div className='mt-5'>
+          <GeneticsDisplay
+            genome={traits.genome}
+            baseStats={{ cap: traits.base_cap, stem: traits.base_stem, spores: traits.base_spores }}
+          />
+        </div>
+
       </div>
 
       {/* Right Column - Actions */}
@@ -186,14 +220,30 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
             <div className="text-sm text-textSecondary mb-2">
               {canAscend
                 ? '✨ Ready to ascend! 20% chance to increase substrate level.'
-                : score === 9
+                : traits.substrate === 4
                   ? '🏆 Maximum substrate level reached!'
-                  : `📈 Reach +9 score to unlock ascension (Current: ${score > 0 ? '+' : ''}${score})`
+                  : `📈 Reach +3 in all Volatile traits to unlock ascension.`
               }
             </div>
+
+            {/* Progress Indicators for Ascension */}
+            {traits.substrate < 4 && !canAscend && (
+              <div className="flex gap-2 mt-2 justify-center">
+                <span className={`text-xs px-2 py-0.5 rounded ${traits.cap === 3 ? 'bg-green-500/20 text-green-400' : 'bg-background text-textSecondary'}`}>
+                  Cap {traits.cap}/3
+                </span>
+                <span className={`text-xs px-2 py-0.5 rounded ${traits.stem === 3 ? 'bg-green-500/20 text-green-400' : 'bg-background text-textSecondary'}`}>
+                  Stem {traits.stem}/3
+                </span>
+                <span className={`text-xs px-2 py-0.5 rounded ${traits.spores === 3 ? 'bg-green-500/20 text-green-400' : 'bg-background text-textSecondary'}`}>
+                  Spores {traits.spores}/3
+                </span>
+              </div>
+            )}
+
             {canAscend && (
-              <div className="text-xs text-warning mt-2">
-                ⚠️ Burns all pending rewards. Resets traits to 0.
+              <div className="text-xs text-warning mt-2 font-semibold">
+                ⚠️ Burns all pending rewards. Resets volatile traits to 0.
               </div>
             )}
           </div>

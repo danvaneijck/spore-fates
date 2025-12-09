@@ -1,11 +1,7 @@
 import React from 'react';
+import { GeneticsDisplay } from './GeneticsDisplay';
+import { TraitExtension } from '../services/shroomService';
 
-interface TraitExtension {
-  cap: number;
-  stem: number;
-  spores: number;
-  substrate: number;
-}
 
 interface MushroomRendererProps {
   traits: TraitExtension;
@@ -16,7 +12,7 @@ export const MushroomRenderer: React.FC<MushroomRendererProps> = ({ traits }) =>
   const capSize = 100 + (traits.cap * 15);
   const stemHeight = 80 + (traits.stem * 10);
   const sporeCount = Math.max(0, 5 + traits.spores * 2);
-  
+
   // Colors based on substrate level
   const substrateColors = [
     '#9E7FFF', // Level 0 - Purple
@@ -25,9 +21,9 @@ export const MushroomRenderer: React.FC<MushroomRendererProps> = ({ traits }) =>
     '#f59e0b', // Level 3 - Orange
     '#ef4444', // Level 4 - Red
   ];
-  
+
   const glowColor = substrateColors[traits.substrate] || substrateColors[0];
-  
+
   // Generate spore particles
   const spores = Array.from({ length: sporeCount }, (_, i) => {
     const angle = (i / sporeCount) * Math.PI * 2;
@@ -35,7 +31,7 @@ export const MushroomRenderer: React.FC<MushroomRendererProps> = ({ traits }) =>
     const x = 150 + Math.cos(angle) * radius;
     const y = 150 + Math.sin(angle) * radius;
     const size = 2 + Math.random() * 3;
-    
+
     return { x, y, size, delay: i * 0.1 };
   });
 
@@ -52,12 +48,12 @@ export const MushroomRenderer: React.FC<MushroomRendererProps> = ({ traits }) =>
             <stop offset="0%" stopColor={glowColor} stopOpacity="0.3" />
             <stop offset="100%" stopColor={glowColor} stopOpacity="0" />
           </radialGradient>
-          
+
           <filter id="glow">
-            <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+            <feGaussianBlur stdDeviation="3" result="coloredBlur" />
             <feMerge>
-              <feMergeNode in="coloredBlur"/>
-              <feMergeNode in="SourceGraphic"/>
+              <feMergeNode in="coloredBlur" />
+              <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
         </defs>
@@ -156,6 +152,8 @@ export const MushroomRenderer: React.FC<MushroomRendererProps> = ({ traits }) =>
         </g>
       </svg>
 
+
+
       {/* Trait indicators */}
       <div className="absolute bottom-4 left-4 right-4 flex justify-between text-xs">
         <div className="bg-background/80 backdrop-blur-sm px-3 py-1 rounded-lg">
@@ -171,6 +169,8 @@ export const MushroomRenderer: React.FC<MushroomRendererProps> = ({ traits }) =>
           <span className="text-text font-semibold">{traits.spores > 0 ? '+' : ''}{traits.spores}</span>
         </div>
       </div>
+
+
     </div>
   );
 };

@@ -6,7 +6,6 @@ import { Dna, FlaskConical, Sprout } from "lucide-react";
 import { EcosystemWeather } from "./EcosystemWeather";
 import { SpinInterface } from "./SpinInterface";
 import { SpinWheel } from "./SpinWheel";
-import { GeneticsDisplay } from "./GeneticsDisplay";
 import { BreedingInterface } from "./BreedingInterface";
 
 
@@ -23,6 +22,7 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
     });
 
     const [metrics, setMetrics] = useState<EcosystemMetrics | null>(null);
+    const [globalShares, setGlobalShares] = useState<string>('0');
 
     const [rewardInfo, setRewardInfo] = useState<RewardInfo>({ accumulated: '0', multiplier: '1', payout: '0' });
 
@@ -49,6 +49,11 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
             // 3. Fetch Rewards
             const rewards = await shroomService.getPendingRewards(tokenId);
             setRewardInfo(rewards);
+
+            const gState = await shroomService.getGlobalState();
+            if (gState) {
+                setGlobalShares(gState.total_shares);
+            }
         };
 
         fetchData();
@@ -56,7 +61,9 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
 
     const onSpin = async (target) => {
         if (!tokenId) return;
-        const msg = shroomService.makeSpinMsg(address, tokenId, target);
+        const cost = shroomService.getSpinCost(traits.substrate);
+
+        const msg = shroomService.makeSpinMsg(address, tokenId, target, cost);
         const result = await executeTransaction(msg, 'spin');
 
         if (result) {
@@ -142,6 +149,7 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
                         onAscend={onAscend}
                         rewardInfo={rewardInfo}
                         isLoading={isLoading}
+                        globalTotalShares={parseFloat(globalShares)}
                     />
                 </>
             ) : (

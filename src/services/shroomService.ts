@@ -58,7 +58,132 @@ export interface GameStats {
     };
 }
 
+export interface GlobalState {
+    total_shares: string;
+    global_reward_index: string;
+    spin_nonce: number;
+}
+
+export interface PlayerProfile {
+    total_mushrooms: number;
+    total_shares: string;
+    total_pending_rewards: string;
+    best_mushroom_id: string | null;
+    last_scanned_id?: string | null;
+}
+
+export const calculateEstimatedShares = (traits: TraitExtension): number => {
+    const rawPower = Math.max(
+        1,
+        traits.cap +
+            traits.base_cap +
+            (traits.stem + traits.base_stem) +
+            (traits.spores + traits.base_spores)
+    );
+
+    const quadratic = Math.pow(rawPower, 2);
+    const multiplier = 1 + traits.substrate;
+
+    return quadratic * multiplier;
+};
+
 export const shroomService = {
+    /**
+     * Internal: Fetch a single page of stats
+     */
+    async getPlayerProfilePage(
+        address: string,
+        startAfter?: string
+    ): Promise<PlayerProfile | null> {
+        try {
+            const queryMsg = {
+                get_player_profile: {
+                    address,
+                    start_after: startAfter || null,
+                    limit: 50,
+                },
+            };
+            const response = await wasmApi.fetchSmartContractState(
+                NETWORK_CONFIG.gameControllerAddress,
+                queryMsg
+            );
+            return JSON.parse(new TextDecoder().decode(response.data));
+        } catch (error) {
+            console.error("Error fetching profile page:", error);
+            return null;
+        }
+    },
+
+    /**
+     * Public: Recursively fetch ALL pages and sum them up.
+     * This solves the pagination problem completely for the UI.
+     */
+    async getFullPlayerProfile(address: string): Promise<PlayerProfile | null> {
+        let totalMushrooms = 0;
+        let totalShares = BigInt(0);
+        let totalRewards = BigInt(0);
+        let globalBestId: string | null = null;
+
+        let lastId: string | undefined = undefined;
+        let hasMore = true;
+
+        // Loop until no more tokens
+        while (hasMore) {
+            const page: PlayerProfile | null = await this.getPlayerProfilePage(
+                address,
+                lastId
+            );
+
+            if (!page || page.total_mushrooms === 0) {
+                break;
+            }
+
+            // Aggregate Data
+            totalMushrooms += page.total_mushrooms;
+            totalShares += BigInt(page.total_shares);
+            totalRewards += BigInt(page.total_pending_rewards);
+
+            // Simple logic: grab the first "best" found.
+            // (To be perfectly accurate, the contract would need to return shares of best_id,
+            // but this is sufficient for a general stats card).
+            if (!globalBestId && page.best_mushroom_id) {
+                globalBestId = page.best_mushroom_id;
+            }
+
+            // Pagination Control
+            if (page.last_scanned_id) {
+                lastId = page.last_scanned_id;
+            } else {
+                hasMore = false;
+            }
+        }
+
+        return {
+            total_mushrooms: totalMushrooms,
+            total_shares: totalShares.toString(),
+            total_pending_rewards: totalRewards.toString(),
+            best_mushroom_id: globalBestId,
+            last_scanned_id: null,
+        };
+    },
+
+    /**
+     * Fetch the core global state (Total Shares, Reward Index)
+     */
+    async getGlobalState(): Promise<GlobalState | null> {
+        try {
+            const queryMsg = { global_state: {} };
+            const response = await wasmApi.fetchSmartContractState(
+                NETWORK_CONFIG.gameControllerAddress,
+                queryMsg
+            );
+            return JSON.parse(new TextDecoder().decode(response.data));
+        } catch (error) {
+            console.error("Error fetching global state:", error);
+            return null;
+        }
+    },
+
     /**
      * Query the CW721 contract for a specific token's traits
      */
@@ -202,17 +327,6 @@ export const shroomService = {
      */
     async isApprovedForAll(owner: string, operator: string): Promise<boolean> {
         try {
-            const queryMsg = {
-                approval: {
-                    token_id: "1", // In standard CW721, operator status is global, but we check specific approval or operator
-                    spender: operator,
-                    include_expired: false,
-                },
-            };
-
-            // Note: Standard CW721 usually has `ApprovedForAll { owner, include_expired }`
-            // But usually checking `Operator` is safer.
-            // Let's use the specific operator check defined in your contract's QueryMsg or CW721 standard
             const operatorQuery = {
                 operator: {
                     owner: owner,
@@ -227,13 +341,50 @@ export const shroomService = {
             );
 
             const data = JSON.parse(new TextDecoder().decode(response.data));
-            console.log(data);
-            // Returns { approval: { spender, expires } } if approved, or something similar depending on implementation
-            // Standard CW721 `OperatorResponse` is { approval: ... } or null
+
             return !!data.approval;
         } catch (error) {
             console.log("Not an operator");
             return false;
+        }
+    },
+
+    /**
+     * NEW: Get the current dynamic mint price from the bonding curve
+     */
+    async getCurrentMintPrice(): Promise<string> {
+        try {
+            const queryMsg = { get_current_mint_price: {} };
+            const response = await wasmApi.fetchSmartContractState(
+                NETWORK_CONFIG.gameControllerAddress,
+                queryMsg
+            );
+            const data = JSON.parse(new TextDecoder().decode(response.data));
+            return data.price;
+        } catch (error) {
+            console.error("Error fetching mint price:", error);
+            // Fallback to base cost from config if query fails
+            return (
+                NETWORK_CONFIG.mintCost *
+                Math.pow(10, NETWORK_CONFIG.paymentDecimals)
+            ).toString();
+        }
+    },
+
+    /**
+     * NEW: Fetch contract config to get the bonding curve slope (increment)
+     */
+    async getGameConfig(): Promise<any> {
+        try {
+            const queryMsg = { config: {} };
+            const response = await wasmApi.fetchSmartContractState(
+                NETWORK_CONFIG.gameControllerAddress,
+                queryMsg
+            );
+            return JSON.parse(new TextDecoder().decode(response.data));
+        } catch (error) {
+            console.error("Error fetching config", error);
+            return null;
         }
     },
 
@@ -260,7 +411,7 @@ export const shroomService = {
      * Calling the CW721 directly (Assuming the user is allowed to mint,
      * or this is a demo where the wallet is the 'minter')
      */
-    makeMintMsg(userAddress: string) {
+    makeMintMsg(userAddress: string, priceRaw: string) {
         const msg = {
             mint: {},
         };
@@ -271,10 +422,7 @@ export const shroomService = {
             msg: msg,
             funds: {
                 denom: NETWORK_CONFIG.paymentDenom,
-                amount: (
-                    NETWORK_CONFIG.mintCost *
-                    Math.pow(10, NETWORK_CONFIG.paymentDecimals)
-                ).toFixed(0),
+                amount: priceRaw, // Use the dynamic price passed in
             },
         });
     },
@@ -294,6 +442,34 @@ export const shroomService = {
         });
     },
 
+    getSpinCost(substrateLevel: number): string {
+        let multiplier = 1;
+        switch (substrateLevel) {
+            case 0:
+                multiplier = 1;
+                break;
+            case 1:
+                multiplier = 2;
+                break;
+            case 2:
+                multiplier = 3;
+                break;
+            case 3:
+                multiplier = 5;
+                break; // Hardened
+            case 4:
+                multiplier = 10;
+                break; // Apex
+            default:
+                multiplier = 1;
+        }
+
+        const baseCost =
+            NETWORK_CONFIG.spinCost *
+            Math.pow(10, NETWORK_CONFIG.paymentDecimals);
+        return (baseCost * multiplier).toFixed(0);
+    },
+
     /**
      * Construct the Spin Message
      * Calls the Game Controller contract and sends funds
@@ -301,11 +477,10 @@ export const shroomService = {
     makeSpinMsg(
         userAddress: string,
         tokenId: string,
-        target: "cap" | "stem" | "spores"
+        target: "cap" | "stem" | "spores",
+        cost: string
     ) {
-        // Rust Enum `TraitTarget` with `cw_serde` usually expects snake_case string
         const targetFormatted = target.toLowerCase();
-
         const msg = {
             spin: {
                 token_id: tokenId,
@@ -317,13 +492,9 @@ export const shroomService = {
             sender: userAddress,
             contractAddress: NETWORK_CONFIG.gameControllerAddress,
             msg: msg,
-            // Attach funds for the spin cost
             funds: {
                 denom: NETWORK_CONFIG.paymentDenom,
-                amount: (
-                    NETWORK_CONFIG.spinCost *
-                    Math.pow(10, NETWORK_CONFIG.paymentDecimals)
-                ).toFixed(0),
+                amount: cost,
             },
         });
     },
@@ -381,15 +552,16 @@ export const shroomService = {
      * Create multiple mint messages with correct progressive pricing
      */
     async makeBatchMintMsgs(userAddress: string, count: number) {
-        const currentPrice = BigInt(
-            NETWORK_CONFIG.mintCost *
-                Math.pow(10, NETWORK_CONFIG.paymentDecimals)
-        );
-        const increment = 0n;
+        // 1. Get Live Data from Contract
+        const priceResponse = await this.getCurrentMintPrice();
+        const config = await this.getGameConfig();
+
+        const currentPrice = BigInt(priceResponse);
+        const increment = BigInt(config?.mint_cost_increment || "0");
 
         const msgs = [];
 
-        // 2. Generate Messages
+        // 2. Generate Messages with Progressive Costs
         for (let i = 0; i < count; i++) {
             const specificPrice = currentPrice + increment * BigInt(i);
 

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { MushroomRenderer } from './MushroomRenderer';
-import { Sparkles, TrendingUp, Award, Loader2, Lock, AlertTriangle } from 'lucide-react';
+import { Sparkles, TrendingUp, Award, Loader2, Lock, AlertTriangle, PieChart } from 'lucide-react';
 import { NETWORK_CONFIG } from '../config';
 import { TraitExtension } from '../services/shroomService';
 import { GeneticsDisplay } from './GeneticsDisplay';
 import { HarvestOverlay } from './HarvestOverlay';
+import { RankBadge } from './RankBadge';
 
 interface SpinInterfaceProps {
   tokenId: string;
@@ -14,6 +15,7 @@ interface SpinInterfaceProps {
   onAscend: () => Promise<void>;
   rewardInfo: { accumulated: string, multiplier: string, payout: string };
   isLoading: boolean;
+  globalTotalShares: number;
 }
 
 export const SpinInterface: React.FC<SpinInterfaceProps> = ({
@@ -24,15 +26,13 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
   onAscend,
   rewardInfo,
   isLoading,
+  globalTotalShares
 }) => {
 
   // Calculate Totals (Volatile + Base)
   const totalCap = Number(traits.cap) + Number(traits.base_cap || 0);
   const totalStem = Number(traits.stem) + Number(traits.base_stem || 0);
   const totalSpores = Number(traits.spores) + Number(traits.base_spores || 0);
-
-  // Total Power determines yield weight
-  const totalPower = totalCap + totalStem + totalSpores;
 
   // Ascension Requirement: Volatile stats must be exactly +3
   const isMaxVolatile = traits.cap === 3 && traits.stem === 3 && traits.spores === 3;
@@ -49,6 +49,23 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
   const [showHarvest, setShowHarvest] = useState(false);
   const [harvestedAmount, setHarvestedAmount] = useState('0');
 
+  const calculateMyShares = () => {
+    const rawPower = Math.max(1,
+      (traits.cap + traits.base_cap) +
+      (traits.stem + traits.base_stem) +
+      (traits.spores + traits.base_spores)
+    );
+    const quadratic = Math.pow(rawPower, 2);
+    const multiplier = 1 + traits.substrate;
+    return quadratic * multiplier;
+  };
+
+  const myShares = calculateMyShares();
+
+  // 2. Calculate Dominance
+  const dominance = globalTotalShares > 0
+    ? ((myShares / globalTotalShares) * 100).toFixed(4)
+    : "100.00";
 
   // Calculated forfeit amount
   const forfeitAmount = (accumulatedVal - payoutVal).toFixed(2);
@@ -79,6 +96,20 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
     }
   };
 
+  const getDisplayCost = () => {
+    let multiplier = 1;
+    switch (traits.substrate) {
+      case 0: multiplier = 1; break;
+      case 1: multiplier = 2; break;
+      case 2: multiplier = 3; break;
+      case 3: multiplier = 5; break;
+      case 4: multiplier = 10; break;
+    }
+    return (NETWORK_CONFIG.spinCost * multiplier);
+  };
+
+  const currentCost = getDisplayCost();
+
   return (
 
     <>
@@ -87,15 +118,28 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
         <div className="bg-surface rounded-3xl p-8 border border-border">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h3 className="text-2xl font-bold text-text">Mushroom #{tokenId}</h3>
+              <h3 className="text-2xl font-bold text-text">#{tokenId}</h3>
               <p className="text-sm text-textSecondary mt-1">
                 Substrate Level: <span className="text-primary font-semibold">{getSubstrateLevel()}</span>
               </p>
+              {/* <div className="mt-2">
+                <RankBadge shares={myShares} />
+              </div> */}
             </div>
-            <div className="text-right">
+            {/* DOMINANCE CARD */}
+            <div className="bg-black/20 rounded-xl p-3 border border-border/50 text-right min-w-[120px]">
+              <div className="flex items-center justify-end gap-1 text-xs text-textSecondary mb-1 uppercase tracking-wider">
+                <PieChart size={12} /> Dominance
+              </div>
+              <div className="text-xl font-mono font-bold text-primary">
+                {dominance}%
+              </div>
+
+            </div>
+            {/* <div className="text-right">
               <div className="text-3xl font-bold text-text">{totalPower > 0 ? '+' : ''}{totalPower}</div>
               <div className="text-xs text-textSecondary">Total Power</div>
-            </div>
+            </div> */}
           </div>
 
           <MushroomRenderer traits={traits} />
@@ -157,7 +201,14 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
           <div className="bg-surface rounded-3xl p-8 border border-border">
             <div className="flex items-center gap-2 mb-6">
               <Sparkles size={24} className="text-primary" />
-              <h3 className="text-xl font-bold text-text">Mutate Traits</h3>
+              <div>
+                <h3 className="text-xl font-bold text-text">Mutate Traits</h3>
+                {traits.substrate > 0 && (
+                  <p className="text-xs text-textSecondary">
+                    Cost Multiplier: <span className="text-primary font-bold">{currentCost / NETWORK_CONFIG.spinCost}x</span> (Substrate Lvl {traits.substrate})
+                  </p>
+                )}
+              </div>
             </div>
 
             <div className="space-y-3">
@@ -169,7 +220,7 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
               >
                 <span className="text-text font-semibold group-hover:text-red-400 transition-colors">Spin Cap</span>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-textSecondary">{NETWORK_CONFIG.spinCost} {NETWORK_CONFIG.paymentSymbol}</span>
+                  <span className="text-sm text-textSecondary">{currentCost} {NETWORK_CONFIG.paymentSymbol}</span>
                   {isLoading ? (
                     <Loader2 size={20} className="text-red-500 animate-spin" />
                   ) : (
@@ -186,7 +237,7 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
               >
                 <span className="text-text font-semibold group-hover:text-green-400 transition-colors">Spin Stem</span>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-textSecondary">{NETWORK_CONFIG.spinCost} {NETWORK_CONFIG.paymentSymbol}</span>
+                  <span className="text-sm text-textSecondary">{currentCost} {NETWORK_CONFIG.paymentSymbol}</span>
                   {isLoading ? (
                     <Loader2 size={20} className="text-green-500 animate-spin" />
                   ) : (
@@ -203,7 +254,7 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
               >
                 <span className="text-text font-semibold group-hover:text-blue-400 transition-colors">Spin Spores</span>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-textSecondary">{NETWORK_CONFIG.spinCost} {NETWORK_CONFIG.paymentSymbol}</span>
+                  <span className="text-sm text-textSecondary">{currentCost} {NETWORK_CONFIG.paymentSymbol}</span>
                   {isLoading ? (
                     <Loader2 size={20} className="text-blue-500 animate-spin" />
                   ) : (

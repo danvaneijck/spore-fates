@@ -1,5 +1,5 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Decimal, Uint128};
+use cosmwasm_std::{Binary, Decimal, Uint128};
 use spore_fates::game::GlobalBiomass;
 
 #[cw_serde]
@@ -7,8 +7,8 @@ pub struct InstantiateMsg {
     pub payment_denom: String,
     pub spin_cost: Uint128,
     pub mint_cost: Uint128,
-    pub pyth_contract_addr: String,
-    pub price_feed_id: String,
+    pub mint_cost_increment: Uint128,
+    pub oracle_addr: String, 
     pub cw721_addr: String,
 }
 
@@ -24,6 +24,9 @@ pub enum ExecuteMsg {
     Spin {
         token_id: String,
         trait_target: TraitTarget,
+    },
+    ResolveSpin {
+        token_id: String,
     },
     Harvest {
         token_id: String,
@@ -49,9 +52,20 @@ pub enum QueryMsg {
     Config {},
     GlobalState {},
     GetEcosystemMetrics {},
-    TokenInfo { token_id: String },
-    GetPendingRewards { token_id: String },
+    TokenInfo {
+        token_id: String,
+    },
+    GetPendingRewards {
+        token_id: String,
+    },
     GetGameStats {},
+    GetCurrentMintPrice {},
+    GetPlayerProfile {
+        address: String,
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
+    GetPendingSpin { token_id: String },
 }
 
 #[cw_serde]
@@ -77,4 +91,34 @@ pub struct GameStatsResponse {
     pub total_spins: u64,
     pub total_rewards_distributed: Uint128,
     pub total_biomass: GlobalBiomass,
+}
+
+#[cw_serde]
+pub struct MintPriceResponse {
+    pub price: Uint128,
+}
+
+#[cw_serde]
+pub struct PlayerProfileResponse {
+    pub total_mushrooms: u64,
+    pub total_shares: Uint128,
+    pub total_pending_rewards: Uint128,   // Calculated dynamically
+    pub best_mushroom_id: Option<String>, // The ID of their highest share mushroom
+    pub last_scanned_id: Option<String>,
+}
+
+#[cw_serde]
+pub struct PendingSpinResponse {
+    pub is_pending: bool,
+    pub target_round: u64,
+}
+
+#[cw_serde]
+pub enum OracleQueryMsg {
+    GetRandomness { round: u64 },
+}
+
+#[cw_serde]
+pub struct RandomnessResponse {
+    pub randomness: Binary,
 }

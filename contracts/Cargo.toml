@@ -2,6 +2,7 @@
 members = [
     "contracts/cw721-spore",
     "contracts/spore-game-controller",
+    "contracts/cw-drand-oracle"
 ]
 
 resolver = "2"

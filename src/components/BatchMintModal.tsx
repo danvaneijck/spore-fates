@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Sparkles, Loader2, Coins, Plus, Minus } from 'lucide-react';
 import { NETWORK_CONFIG } from '../config';
+import { shroomService } from '../services/shroomService';
 
 interface Props {
     isOpen: boolean;
@@ -19,12 +20,21 @@ export const BatchMintModal: React.FC<Props> = ({ isOpen, onClose, onConfirm, is
     useEffect(() => {
         if (isOpen) {
             const fetchData = async () => {
-                const price = BigInt(
-                    NETWORK_CONFIG.mintCost *
-                    Math.pow(10, NETWORK_CONFIG.paymentDecimals)
-                );
-                setBasePrice(BigInt(price));
-                setIncrement(BigInt(0));
+                try {
+                    // 1. Get the current price from the bonding curve
+                    const price = await shroomService.getCurrentMintPrice();
+
+                    // 2. Get the slope (increment) from the contract config
+                    const config = await shroomService.getGameConfig();
+
+                    setBasePrice(BigInt(price));
+                    setIncrement(BigInt(config?.mint_cost_increment || "0"));
+                } catch (error) {
+                    console.error("Failed to fetch batch pricing:", error);
+                    // Fallback to safety defaults
+                    setBasePrice(BigInt(0));
+                    setIncrement(BigInt(0));
+                }
             };
             fetchData();
         }

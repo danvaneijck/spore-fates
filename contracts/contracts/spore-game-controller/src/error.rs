@@ -21,6 +21,12 @@ pub enum ContractError {
     #[error("Not at max level")]
     NotMaxLevel {},
 
+    #[error("Has pending spin")]
+    HasPendingSpin {},
+
+    #[error("No pending spin")]
+    NoPendingSpin {},
+
     #[error("Claimed")]
     Claimed {},
 

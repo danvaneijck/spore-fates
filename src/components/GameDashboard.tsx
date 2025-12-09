@@ -3,12 +3,12 @@ import { MintInterface } from "./MintInterface";
 import { Route, Routes, useNavigate, useParams } from "react-router-dom";
 import GameContainer from "./GameContainer";
 import { MushroomGallery } from "./MushroomGallery";
-import { WalletConnect } from "./WalletConnect";
 import { shroomService, TraitExtension } from "../services/shroomService";
 import { findAttribute } from "../utils/transactionParser";
 import { useState } from "react";
 import { NewMushroomReveal } from "./NewMushroomReveal";
 import { GlobalStatsBanner } from "./GlobalStatsBanner";
+import { PlayerStatsCard } from "./PlayerStatsCard";
 
 const GalleryWrapper = ({ address, refreshTrigger }: { address: string, refreshTrigger: number }) => {
     // Extract tokenId from the URL (e.g., /play/123)
@@ -57,6 +57,12 @@ const GameDashboard = ({ address, setAddress, refreshTrigger, setRefreshTrigger,
         <>
 
             <GlobalStatsBanner refreshTrigger={refreshTrigger} />
+
+            {address && (
+                <div className="mb-8">
+                    <PlayerStatsCard address={address} refreshTrigger={refreshTrigger} />
+                </div>
+            )}
 
             {/* Main Content Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-8 items-start mt-4">

@@ -17,11 +17,12 @@ pub mod state;
 
 use crate::error::ContractError;
 use crate::msg::{
-    EcosystemMetricsResponse, ExecuteMsg, InstantiateMsg, PendingRewardsResponse, QueryMsg,
-    TraitTarget,
+    EcosystemMetricsResponse, ExecuteMsg, GameStatsResponse, InstantiateMsg,
+    PendingRewardsResponse, QueryMsg, TraitTarget,
 };
 use crate::state::{
-    GameConfig, GlobalState, TokenInfo, BIOMASS, CONFIG, GLOBAL_STATE, MINT_COUNTER, TOKEN_INFO,
+    GameConfig, GameStats, GlobalState, TokenInfo, BIOMASS, CONFIG, GAME_STATS, GLOBAL_STATE,
+    MINT_COUNTER, TOKEN_INFO,
 };
 
 const CONTRACT_NAME: &str = "crates.io:spore-game-controller";
@@ -109,6 +110,9 @@ pub fn instantiate(
         total_base_spores: 0,
     };
 
+    let stats = GameStats::default();
+
+    GAME_STATS.save(deps.storage, &stats)?;
     CONFIG.save(deps.storage, &config)?;
     GLOBAL_STATE.save(deps.storage, &global_state)?;
     BIOMASS.save(deps.storage, &biomass)?;
@@ -292,6 +296,10 @@ fn execute_mint(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, 
         funds: vec![],
     };
 
+    let mut stats = GAME_STATS.load(deps.storage)?;
+    stats.total_minted += 1;
+    GAME_STATS.save(deps.storage, &stats)?;
+
     Ok(Response::new()
         .add_message(mint_msg)
         .add_attribute("action", "mint")
@@ -461,6 +469,10 @@ fn execute_spin(
         funds: vec![],
     };
 
+    let mut stats = GAME_STATS.load(deps.storage)?;
+    stats.total_spins += 1;
+    GAME_STATS.save(deps.storage, &stats)?;
+
     Ok(Response::new()
         .add_message(update_msg)
         .add_attribute("action", "spin")
@@ -544,6 +556,10 @@ fn execute_harvest(
     let mut messages: Vec<cosmwasm_std::CosmosMsg> = vec![];
 
     if !payout_amount.is_zero() {
+        let mut stats = GAME_STATS.load(deps.storage)?;
+        stats.total_rewards_distributed += payout_amount;
+        GAME_STATS.save(deps.storage, &stats)?;
+
         messages.push(
             BankMsg::Send {
                 to_address: info.sender.to_string(),
@@ -857,6 +873,11 @@ fn execute_splice(
         funds: vec![],
     };
 
+    let mut stats = GAME_STATS.load(deps.storage)?;
+    stats.total_burned += 2;
+    stats.total_minted += 1;
+    GAME_STATS.save(deps.storage, &stats)?;
+
     Ok(Response::new()
         .add_message(burn_msg_1)
         .add_message(burn_msg_2)
@@ -943,7 +964,24 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             to_json_binary(&query_pending_rewards(deps, token_id)?)
         }
         QueryMsg::GetEcosystemMetrics {} => to_json_binary(&query_ecosystem_metrics(deps)?),
+        QueryMsg::GetGameStats {} => to_json_binary(&query_game_stats(deps)?),
     }
+}
+
+fn query_game_stats(deps: Deps) -> StdResult<GameStatsResponse> {
+    let stats = GAME_STATS.load(deps.storage)?;
+    let biomass = BIOMASS.load(deps.storage)?;
+
+    let current_supply = stats.total_minted.saturating_sub(stats.total_burned);
+
+    Ok(GameStatsResponse {
+        total_minted: stats.total_minted,
+        total_burned: stats.total_burned,
+        current_supply,
+        total_spins: stats.total_spins,
+        total_rewards_distributed: stats.total_rewards_distributed,
+        total_biomass: biomass,
+    })
 }
 
 fn query_pending_rewards(deps: Deps, token_id: String) -> StdResult<PendingRewardsResponse> {

@@ -51,6 +51,7 @@ pub enum QueryMsg {
     GetEcosystemMetrics {},
     TokenInfo { token_id: String },
     GetPendingRewards { token_id: String },
+    GetGameStats {},
 }
 
 #[cw_serde]
@@ -66,4 +67,14 @@ pub struct EcosystemMetricsResponse {
     pub cap_multiplier: Decimal,
     pub stem_multiplier: Decimal,
     pub spores_multiplier: Decimal,
+}
+
+#[cw_serde]
+pub struct GameStatsResponse {
+    pub total_minted: u64,
+    pub total_burned: u64,
+    pub current_supply: u64,
+    pub total_spins: u64,
+    pub total_rewards_distributed: Uint128,
+    pub total_biomass: GlobalBiomass,
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { walletStrategy } from './components/WalletConnect';
+import { WalletConnect, walletStrategy } from './components/WalletConnect';
 import { ToastProvider } from './components/ToastProvider';
 import { Sprout, Github, Twitter, BookOpen, Home } from 'lucide-react';
 import { MsgBroadcaster } from "@injectivelabs/wallet-core";
@@ -9,6 +9,7 @@ import { NETWORK_CONFIG } from './config';
 import { showTransactionToast } from './utils/toast';
 import { About } from './pages/about';
 import GameDashboard from './components/GameDashboard';
+import { GlobalStatsBanner } from './components/GlobalStatsBanner';
 
 
 function App() {
@@ -103,26 +104,27 @@ function App() {
 
               {/* Socials */}
               <div className="flex items-center gap-4">
-                <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="p-2 hover:bg-background rounded-lg transition-colors">
+                <a href="https://github.com/danvaneijck/spore-fates" target="_blank" rel="noopener noreferrer" className="p-2 hover:bg-background rounded-lg transition-colors">
                   <Github size={20} className="text-textSecondary hover:text-text" />
                 </a>
-                <a href="https://twitter.com" target="_blank" rel="noopener noreferrer" className="p-2 hover:bg-background rounded-lg transition-colors">
+                <a href="https://x.com/trippy_inj" target="_blank" rel="noopener noreferrer" className="p-2 hover:bg-background rounded-lg transition-colors">
                   <Twitter size={20} className="text-textSecondary hover:text-text" />
                 </a>
               </div>
+              <WalletConnect onAddressChange={setAddress} />
             </div>
           </div>
         </header>
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <main className="mx-auto px-4 sm:px-6 lg:px-10 ">
           <Routes>
             {/* Route for the Rules Page */}
             <Route path="/about" element={<About />} />
-
             {/* 
               Route for the Main Game. 
               The '/*' allows nested routes inside GameDashboard (like /play/:id) to work.
             */}
+
             <Route path="/*" element={
               <GameDashboard
                 address={address}

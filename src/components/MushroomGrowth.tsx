@@ -1,6 +1,5 @@
 
 export const MushroomGrowth = () => {
-    console.log('Rendering MushroomGrowth animation')
     return (
         <div className="relative w-32 h-32 flex items-center justify-center overflow-hidden">
             <style>{`

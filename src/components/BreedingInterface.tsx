@@ -10,6 +10,7 @@ import { NewMushroomReveal } from './NewMushroomReveal';
 import { useNavigate } from 'react-router-dom';
 import { findAttribute } from '../utils/transactionParser';
 import { GeneticSimulator } from './GeneticSimulator';
+import { PendingRewardsWarning } from './PendingRewardsWarning';
 
 interface Props {
     address: string;
@@ -153,6 +154,11 @@ export const BreedingInterface: React.FC<Props> = ({
                         genomeB={parentBTraits.genome}
                     />
                 )}
+
+                <PendingRewardsWarning
+                    parentAId={parentAId}
+                    parentBId={parentBId}
+                />
 
                 {/* Action Button */}
                 <div className="mt-auto">

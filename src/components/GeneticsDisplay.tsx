@@ -70,7 +70,7 @@ export const GeneticsDisplay: React.FC<Props> = ({ genome, baseStats }) => {
                 </div>
             </div>
 
-            <div className="flex justify-between gap-3">
+            <div className="flex justify-between gap-3 ">
                 {slots.map((gene, idx) => {
                     const style = GENE_STYLES[gene] || GENE_STYLES[0];
 

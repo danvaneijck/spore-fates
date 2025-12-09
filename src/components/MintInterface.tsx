@@ -30,7 +30,7 @@ export const MintInterface: React.FC<MintInterfaceProps> = ({
   }, [isLoading]);
 
   return (
-    <div className="max-w-4xl mx-auto mt-12">
+    <div className="max-w-4xl mx-auto mt-6">
       <div className={`bg-surface rounded-3xl p-4 md:p-12 border transition-all duration-500 shadow-xl
          ${isLoading ? 'border-primary shadow-primary/20 scale-[1.02]' : 'border-border'}`}>
 

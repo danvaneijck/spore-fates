@@ -45,6 +45,19 @@ export interface RewardInfo {
     payout: string; // Actual
 }
 
+export interface GameStats {
+    total_minted: number;
+    total_burned: number;
+    current_supply: number;
+    total_spins: number;
+    total_rewards_distributed: string;
+    total_biomass: {
+        total_base_cap: string;
+        total_base_stem: string;
+        total_base_spores: string;
+    };
+}
+
 export const shroomService = {
     /**
      * Query the CW721 contract for a specific token's traits
@@ -347,5 +360,54 @@ export const shroomService = {
             contractAddress: NETWORK_CONFIG.gameControllerAddress,
             msg: msg,
         });
+    },
+
+    async getGameStats(): Promise<GameStats | null> {
+        try {
+            const queryMsg = { get_game_stats: {} };
+            const response = await wasmApi.fetchSmartContractState(
+                NETWORK_CONFIG.gameControllerAddress,
+                queryMsg
+            );
+            // console.log(JSON.parse(new TextDecoder().decode(response.data)));
+            return JSON.parse(new TextDecoder().decode(response.data));
+        } catch (error) {
+            console.error("Error fetching game stats:", error);
+            return null;
+        }
+    },
+
+    /**
+     * Create multiple mint messages with correct progressive pricing
+     */
+    async makeBatchMintMsgs(userAddress: string, count: number) {
+        const currentPrice = BigInt(
+            NETWORK_CONFIG.mintCost *
+                Math.pow(10, NETWORK_CONFIG.paymentDecimals)
+        );
+        const increment = 0n;
+
+        const msgs = [];
+
+        // 2. Generate Messages
+        for (let i = 0; i < count; i++) {
+            const specificPrice = currentPrice + increment * BigInt(i);
+
+            const msg = { mint: {} };
+
+            msgs.push(
+                new MsgExecuteContract({
+                    sender: userAddress,
+                    contractAddress: NETWORK_CONFIG.gameControllerAddress,
+                    msg: msg,
+                    funds: {
+                        denom: NETWORK_CONFIG.paymentDenom,
+                        amount: specificPrice.toString(),
+                    },
+                })
+            );
+        }
+
+        return msgs;
     },
 };

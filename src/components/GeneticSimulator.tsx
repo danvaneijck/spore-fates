@@ -86,7 +86,7 @@ export const GeneticSimulator: React.FC<Props> = ({ genomeA, genomeB }) => {
             </div>
 
             {/* The Visualizer Strip */}
-            <div className="flex gap-2 mb-4">
+            <div className="flex gap-2 mb-4 max-h-12">
                 {simulatedGenome.map((gene, idx) => {
                     const style = GENE_STYLES[gene] || GENE_STYLES[0];
                     return (

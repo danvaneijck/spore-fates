@@ -109,7 +109,7 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
     }
 
     return (
-        <div className="max-w-screen-xl m-auto bg-surface rounded-3xl p-6 border border-border h-full">
+        <div className=" m-auto bg-surface rounded-3xl p-6 border border-border h-full">
             <EcosystemWeather metrics={metrics} />
 
             {/* TAB NAVIGATION */}
@@ -133,10 +133,7 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
             {/* TAB CONTENT */}
             {activeTab === 'mutate' ? (
                 <>
-                    <GeneticsDisplay
-                        genome={traits.genome}
-                        baseStats={traits}
-                    />
+
                     <SpinInterface
                         tokenId={tokenId}
                         traits={traits}

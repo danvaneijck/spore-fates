@@ -8,6 +8,7 @@ import { shroomService, TraitExtension } from "../services/shroomService";
 import { findAttribute } from "../utils/transactionParser";
 import { useState } from "react";
 import { NewMushroomReveal } from "./NewMushroomReveal";
+import { GlobalStatsBanner } from "./GlobalStatsBanner";
 
 const GalleryWrapper = ({ address, refreshTrigger }: { address: string, refreshTrigger: number }) => {
     // Extract tokenId from the URL (e.g., /play/123)
@@ -54,21 +55,11 @@ const GameDashboard = ({ address, setAddress, refreshTrigger, setRefreshTrigger,
 
     return (
         <>
-            <div className="text-center mb-12">
-                <h2 className="text-4xl md:text-5xl font-bold text-text mb-4">
-                    Evolve Your <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">Mushroom</span>
-                </h2>
-                <p className="text-lg text-textSecondary max-w-2xl mx-auto mb-8">
-                    A strategy GameFi experience on Injective. Roll traits, harvest rewards, and ascend to prestige levels.
-                </p>
 
-                <div className="flex justify-center mb-4">
-                    <WalletConnect onAddressChange={setAddress} />
-                </div>
-            </div>
+            <GlobalStatsBanner refreshTrigger={refreshTrigger} />
 
             {/* Main Content Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-8 items-start">
+            <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-8 items-start mt-4">
                 {/* Left Column - Gallery */}
                 {address && (
                     <div className="w-full lg:w-[320px]">
@@ -112,7 +103,7 @@ const GameDashboard = ({ address, setAddress, refreshTrigger, setRefreshTrigger,
             </div>
 
             {/* Mint Interface */}
-            <div className='mt-12'>
+            <div className='mt-4'>
                 <MintInterface onMint={handleMint} isLoading={isLoading} />
             </div>
 

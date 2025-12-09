@@ -45,8 +45,6 @@ export function parseSpinResult(
             return null;
         }
 
-        console.log(wasmEvent);
-
         // Extract attributes
         const getAttr = (key: string): string | undefined => {
             return wasmEvent.attributes.find((attr) => attr.key === key)?.value;
@@ -58,8 +56,6 @@ export function parseSpinResult(
             "cap") as "cap" | "stem" | "spores";
         const oldValue = parseInt(getAttr("old_volatile") || "0");
         const newValue = parseInt(getAttr("new_volatile") || "0");
-
-        console.log("oldValue:", oldValue, "newValue:", newValue);
 
         return {
             success,
@@ -80,7 +76,6 @@ export const findAttribute = (
     attrKey: string
 ): string | null => {
     try {
-        console.log(txResult);
         const events = txResult.events;
         for (const event of events) {
             if (event.type === "wasm-" + eventType || event.type === "wasm") {

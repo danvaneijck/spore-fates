@@ -27,6 +27,17 @@ pub struct TokenInfo {
     pub pending_rewards: Uint128,
 }
 
+#[cw_serde]
+#[derive(Default)]
+pub struct GameStats {
+    pub total_minted: u64,
+    pub total_burned: u64,
+    pub total_spins: u64,
+    pub total_rewards_distributed: Uint128,
+}
+
+pub const GAME_STATS: Item<GameStats> = Item::new("game_stats");
+
 pub const CONFIG: Item<GameConfig> = Item::new("config");
 pub const GLOBAL_STATE: Item<GlobalState> = Item::new("global_state");
 pub const TOKEN_INFO: Map<&str, TokenInfo> = Map::new("token_info");

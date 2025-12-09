@@ -6,7 +6,7 @@ import { shroomService } from '../services/shroomService';
 interface Props {
     address: string;
     currentTokenId: string;
-    refreshTrigger: number; // To reload list after minting
+    refreshTrigger: number;
 }
 
 export const MushroomGallery: React.FC<Props> = ({ address, currentTokenId, refreshTrigger }) => {
@@ -22,7 +22,6 @@ export const MushroomGallery: React.FC<Props> = ({ address, currentTokenId, refr
             const list = await shroomService.getTokensOwned(address);
             setTokens(list);
 
-            // If user has tokens but URL is at root, auto-select first one
             if (list.length > 0 && !currentTokenId) {
                 navigate(`/play/${list[0]}`);
             }
@@ -30,7 +29,7 @@ export const MushroomGallery: React.FC<Props> = ({ address, currentTokenId, refr
         };
 
         fetchTokens();
-    }, [address, refreshTrigger, navigate]);
+    }, [address, refreshTrigger, navigate, currentTokenId]);
 
     const handleSelect = (id: string) => {
         navigate(`/play/${id}`);
@@ -45,7 +44,7 @@ export const MushroomGallery: React.FC<Props> = ({ address, currentTokenId, refr
                 Your Colony ({tokens.length})
             </h3>
 
-            {isLoading ? (
+            {isLoading && !tokens ? (
                 <div className="text-textSecondary text-sm">Loading spores...</div>
             ) : tokens.length === 0 ? (
                 <div className="text-textSecondary text-sm italic">

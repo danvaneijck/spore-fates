@@ -36,7 +36,7 @@ export const PartnerSelector: React.FC<Props> = ({ address, excludeId, onSelect,
 
     return (
         <div className="grid grid-cols-3 gap-2 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
-            {tokens.map(id => (
+            {tokens.sort((a, b) => parseInt(a) - parseInt(b)).map(id => (
                 <button
                     key={id}
                     onClick={() => previews[id] && onSelect(id, previews[id])}
@@ -49,7 +49,7 @@ export const PartnerSelector: React.FC<Props> = ({ address, excludeId, onSelect,
                     {previews[id] ? (
                         <div className="p-2">
                             <div className="w-full aspect-square mb-1">
-                                <MushroomRenderer traits={previews[id]} />
+                                <MushroomRenderer traits={previews[id]} minimal />
                             </div>
                             <div className="text-xs font-bold text-center text-text">#{id}</div>
                         </div>

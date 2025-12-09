@@ -52,7 +52,7 @@ export const MushroomGallery: React.FC<Props> = ({ address, currentTokenId, refr
                 </div>
             ) : (
                 <div className="grid grid-cols-4 gap-2">
-                    {tokens.map((id) => (
+                    {tokens.sort((a, b) => parseInt(a) - parseInt(b)).map((id) => (
                         <button
                             key={id}
                             onClick={() => handleSelect(id)}

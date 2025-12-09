@@ -9,6 +9,7 @@ import { SpliceModal } from './SpliceModal';
 import { NewMushroomReveal } from './NewMushroomReveal';
 import { useNavigate } from 'react-router-dom';
 import { findAttribute } from '../utils/transactionParser';
+import { GeneticSimulator } from './GeneticSimulator';
 
 interface Props {
     address: string;
@@ -147,19 +148,10 @@ export const BreedingInterface: React.FC<Props> = ({
 
                 {/* Comparison / Stats */}
                 {parentBTraits && (
-                    <div className="mb-6 bg-background rounded-xl p-4 border border-border/50">
-                        <h4 className="text-sm font-bold text-text mb-3">Genetic Compatibility</h4>
-                        <div className="space-y-2 text-xs">
-                            <div className="flex justify-between">
-                                <span className="text-textSecondary">Target Gene Pool</span>
-                                <span className="text-text font-mono">16 Alleles</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-textSecondary">Mutation Chance</span>
-                                <span className="text-orange-400 font-bold">~40% (5% per slot)</span>
-                            </div>
-                        </div>
-                    </div>
+                    <GeneticSimulator
+                        genomeA={parentATraits.genome}
+                        genomeB={parentBTraits.genome}
+                    />
                 )}
 
                 {/* Action Button */}

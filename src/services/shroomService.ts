@@ -182,6 +182,64 @@ export const shroomService = {
     },
 
     /**
+     * Check if the Game Controller is an approved operator for the user
+     */
+    async isApprovedForAll(owner: string, operator: string): Promise<boolean> {
+        try {
+            const queryMsg = {
+                approval: {
+                    token_id: "1", // In standard CW721, operator status is global, but we check specific approval or operator
+                    spender: operator,
+                    include_expired: false,
+                },
+            };
+
+            // Note: Standard CW721 usually has `ApprovedForAll { owner, include_expired }`
+            // But usually checking `Operator` is safer.
+            // Let's use the specific operator check defined in your contract's QueryMsg or CW721 standard
+            const operatorQuery = {
+                operator: {
+                    owner: owner,
+                    operator: operator,
+                    include_expired: false,
+                },
+            };
+
+            const response = await wasmApi.fetchSmartContractState(
+                NETWORK_CONFIG.cw721Address,
+                operatorQuery
+            );
+
+            const data = JSON.parse(new TextDecoder().decode(response.data));
+            console.log(data);
+            // Returns { approval: { spender, expires } } if approved, or something similar depending on implementation
+            // Standard CW721 `OperatorResponse` is { approval: ... } or null
+            return !!data.approval;
+        } catch (error) {
+            console.log("Not an operator");
+            return false;
+        }
+    },
+
+    /**
+     * Create Approve All Message
+     */
+    makeApproveAllMsg(sender: string, operator: string) {
+        const msg = {
+            approve_all: {
+                operator: operator,
+                expires: null,
+            },
+        };
+
+        return new MsgExecuteContract({
+            sender: sender,
+            contractAddress: NETWORK_CONFIG.cw721Address,
+            msg: msg,
+        });
+    },
+
+    /**
      * Construct the Mint Message
      * Calling the CW721 directly (Assuming the user is allowed to mint,
      * or this is a demo where the wallet is the 'minter')

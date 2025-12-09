@@ -3,13 +3,18 @@ import { useParams } from "react-router-dom";
 import { EcosystemMetrics, shroomService, TraitExtension } from "../services/shroomService";
 import { parseSpinResult, SpinResult } from "../utils/transactionParser";
 import { NETWORK_CONFIG } from "../config";
-import { Sprout } from "lucide-react";
+import { Dna, FlaskConical, Sprout } from "lucide-react";
 import { EcosystemWeather } from "./EcosystemWeather";
 import { SpinInterface } from "./SpinInterface";
 import { SpinWheel } from "./SpinWheel";
+import { GeneticsDisplay } from "./GeneticsDisplay";
+import { BreedingInterface } from "./BreedingInterface";
 
 
 const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTransaction, isLoading }) => {
+
+    const [activeTab, setActiveTab] = useState<'mutate' | 'breed'>('mutate'); // New Tab State
+
     const { tokenId } = useParams();
 
     const [traits, setTraits] = useState<TraitExtension>({
@@ -110,15 +115,50 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
         <div className="max-w-screen-xl m-auto bg-surface rounded-3xl p-6 border border-border h-full">
             <EcosystemWeather metrics={metrics} />
 
-            <SpinInterface
-                tokenId={tokenId}
-                traits={traits}
-                onSpin={onSpin}
-                onHarvest={onHarvest}
-                onAscend={onAscend}
-                pendingRewards={displayRewards}
-                isLoading={isLoading}
-            />
+            {/* TAB NAVIGATION */}
+            <div className="flex p-1 bg-background rounded-xl border border-border mb-6">
+                <button
+                    onClick={() => setActiveTab('mutate')}
+                    className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all
+            ${activeTab === 'mutate' ? 'bg-surface text-primary shadow-sm' : 'text-textSecondary hover:text-text'}`}
+                >
+                    <FlaskConical size={16} /> Mutate & Harvest
+                </button>
+                <button
+                    onClick={() => setActiveTab('breed')}
+                    className={`flex-1 py-2 px-4 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all
+            ${activeTab === 'breed' ? 'bg-surface text-purple-400 shadow-sm' : 'text-textSecondary hover:text-text'}`}
+                >
+                    <Dna size={16} /> Genetic Splicing
+                </button>
+            </div>
+
+            {/* TAB CONTENT */}
+            {activeTab === 'mutate' ? (
+                <>
+                    <GeneticsDisplay
+                        genome={traits.genome}
+                        baseStats={{ cap: traits.base_cap, stem: traits.base_stem, spores: traits.base_spores }}
+                    />
+                    <SpinInterface
+                        tokenId={tokenId}
+                        traits={traits}
+                        onSpin={onSpin}
+                        onHarvest={onHarvest}
+                        onAscend={onAscend}
+                        pendingRewards={displayRewards}
+                        isLoading={isLoading}
+                    />
+                </>
+            ) : (
+                <BreedingInterface
+                    address={address}
+                    parentAId={tokenId}
+                    parentATraits={traits}
+                    executeTransaction={executeTransaction}
+                    isLoading={isLoading}
+                />
+            )}
 
             {spinResult && (
                 <SpinWheel

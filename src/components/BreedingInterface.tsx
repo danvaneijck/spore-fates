@@ -6,6 +6,9 @@ import { GeneticsDisplay } from './GeneticsDisplay';
 import { PartnerSelector } from './PartnerSelector';
 import { GitMerge, ArrowRight, AlertTriangle, Loader2, Flame } from 'lucide-react';
 import { SpliceModal } from './SpliceModal';
+import { NewMushroomReveal } from './NewMushroomReveal';
+import { useNavigate } from 'react-router-dom';
+import { findAttribute } from '../utils/transactionParser';
 
 interface Props {
     address: string;
@@ -22,9 +25,15 @@ export const BreedingInterface: React.FC<Props> = ({
     executeTransaction,
     isLoading
 }) => {
+    const navigate = useNavigate();
+
     const [parentBId, setParentBId] = useState<string | null>(null);
     const [parentBTraits, setParentBTraits] = useState<TraitExtension | null>(null);
     const [showConfirm, setShowConfirm] = useState(false);
+
+    const [revealOpen, setRevealOpen] = useState(false);
+    const [newChildId, setNewChildId] = useState<string | null>(null);
+    const [newChildTraits, setNewChildTraits] = useState<TraitExtension | null>(null);
 
     const handleSelectPartner = (id: string, traits: TraitExtension) => {
         setParentBId(id);
@@ -52,13 +61,34 @@ export const BreedingInterface: React.FC<Props> = ({
         if (!parentBId) return;
         setShowConfirm(false);
 
+        // 1. Execute Splice
         const msg = shroomService.makeSpliceMsg(address, parentAId, parentBId);
-        await executeTransaction(msg, 'splice');
+        const result = await executeTransaction(msg, 'splice');
 
-        // Reset selection after success
+        if (result) {
+            // 2. Find Child ID from logs
+            // CosmWasm usually emits 'wasm-splice' event with 'child_id' attribute
+            const childId = findAttribute(result, 'splice', 'child_id');
+
+            if (childId) {
+                setNewChildId(childId);
+
+                // 3. Fetch New Child Data (with a tiny delay to ensure indexer/node caught up)
+                setTimeout(async () => {
+                    const traits = await shroomService.getShroomTraits(childId);
+                    setNewChildTraits(traits);
+                    setRevealOpen(true);
+                }, 1000);
+            }
+        }
+
+        // Reset selection
         setParentBId(null);
         setParentBTraits(null);
     };
+
+    // Helper to parse logs
+
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -82,7 +112,7 @@ export const BreedingInterface: React.FC<Props> = ({
                         <div className="w-full aspect-square bg-background rounded-xl border border-border p-2 mb-2">
                             <MushroomRenderer traits={parentATraits} />
                         </div>
-                        <span className="font-mono text-sm">#{parentAId}</span>
+                        <span className="text-white font-mono text-sm">#{parentAId}</span>
                     </div>
 
                     {/* Icon */}
@@ -101,7 +131,7 @@ export const BreedingInterface: React.FC<Props> = ({
                                 <span className="text-xs text-textSecondary">Select Partner</span>
                             )}
                         </div>
-                        <span className="font-mono text-sm">{parentBId ? `#${parentBId}` : '---'}</span>
+                        <span className="text-white font-mono text-sm">{parentBId ? `#${parentBId}` : '---'}</span>
 
                         {parentBId && (
                             <button
@@ -174,6 +204,20 @@ export const BreedingInterface: React.FC<Props> = ({
                     </div>
                 )}
             </div>
+
+            {/* NEW REVEAL MODAL */}
+            <NewMushroomReveal
+                isOpen={revealOpen}
+                onClose={() => {
+                    setRevealOpen(false);
+                    if (newChildId) {
+                        navigate(`/play/${newChildId}`);
+                        window.scrollTo(0, 0);
+                    }
+                }}
+                childId={newChildId}
+                childTraits={newChildTraits}
+            />
 
             <SpliceModal
                 isOpen={showConfirm}

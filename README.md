@@ -1,77 +1,92 @@
 # SporeFates - Injective Mushroom NFT GameFi
 
-A strategy GameFi dApp where users evolve "Mushroom NFTs" by rolling mutable traits on the Injective blockchain.
+A strategy GameFi dApp where users evolve "Mushroom NFTs" by rolling mutable traits and engineering genetic lineages on the Injective blockchain.
 
 ## Features
 
-- **Mutable NFT Traits**: Cap, Stem, Spores (-3 to +3), and Substrate (0 to 4 prestige levels)
-- **Pyth-Based Randomness**: Synchronous PRNG using Pyth price feeds + block data
-- **Reward Distribution**: Share-based reward system with global pool
-- **Prestige System**: Ascend to higher substrate levels for permanent multipliers and mechanics
-- **Beautiful UI**: React frontend with real-time mushroom visualization
+- **Dual Stat System**: Volatile Traits (-3 to +3) and Permanent Base Stats (0 to +10).
+- **Genetics & Breeding**: Splicing system to merge genomes and mutate new strains.
+- **Dynamic Ecosystem**: "The Canopy" algorithm adjusts yields based on global trait scarcity.
+- **Mutable NFT Traits**: Cap, Stem, Spores, and Substrate (Prestige).
+- **Pyth-Based Randomness**: Synchronous PRNG using Pyth price feeds + block data.
+- **Prestige System**: Ascend to higher substrate levels for permanent multipliers.
 
 ## Architecture
 
 ### Smart Contracts (CosmWasm)
 
-1. **cw721-spore**: NFT contract with mutable trait extensions
-2. **spore-game-controller**: Game logic, randomness, and reward distribution
+1. **cw721-spore**: NFT contract storing Volatile Traits, Substrate, and the 8-slot Genome.
+2. **spore-game-controller**: Handles Spinning, Splicing (Breeding), Ecosystem math, and Reward distribution.
 
 ### Frontend (React + Injective SDK)
 
 - Wallet connectivity (Keplr, Leap, Metamask)
-- Real-time mushroom rendering
-- Transaction broadcasting with visual feedback
+- Real-time mushroom rendering and Genetic visualization
+- "Weather" dashboard for tracking ecosystem yield multipliers
 
 ## Game Mechanics
 
-### Substrate Levels (Buffs & Trade-offs)
-Substrate determines your share of the global reward pool and unlocks specific gameplay mechanics.
+### 1. Stats & Power
+A Mushroom's total power determines its share of the reward pool.
+$$ \text{Total Power} = \text{Volatile Stat} + \text{Base Stat} $$
 
-*   **Level 0 (Base)**
-    *   **Reward Share:** 1x Multiplier
-    *   *Standard Rules apply.*
+*   **Volatile Stats:** Range from **-3 to +3**. Changed via "Spinning" (RNG Risk). Resets on Harvest.
+*   **Base Stats:** Range from **0 to +10**. Determined by **Genetics**. Permanent and never reset.
 
-*   **Level 1 (Regrowth)**
-    *   **Reward Share:** 2x Multiplier
-    *   **Harvest Perk:** When harvesting, instead of resetting all stats to 0, one random stat will instantly start at **+1**.
+### 2. Genetics & Splicing
+Every Mushroom contains a genome of **8 Genes**. The count of specific genes determines the **Base Stat**.
 
-*   **Level 2 (Rooted)**
-    *   **Reward Share:** 3x Multiplier
-    *   **Spin Perk:** You gain protection at +1. If you fail a spin while a stat is at +1, it stays at +1 (instead of dropping to -1).
-    *   *Includes Level 1 Harvest Perk.*
+**The Genes:**
+*   🔴 **Toxin:** Boosts Base Cap.
+*   🟢 **Chitin:** Boosts Base Stem.
+*   🔵 **Phosphor:** Boosts Base Spores.
+*   🟡 **Primordial:** Wildcard (Counts as all three).
+*   ⚪ **Rot:** Null gene (No bonus).
 
-*   **Level 3 (Hardened)**
-    *   **Reward Share:** 4x Multiplier
-    *   **Difficulty Spike:** Success rate for spins decreases from ~50% to ~45%. High risk, high reward.
-    *   *Includes Level 1 & 2 Perks.*
+**Thresholds:**
+| Gene Count | Rank | Effect |
+| :--- | :--- | :--- |
+| 1-2 | Recessive | +0 Base Stat |
+| 3-4 | Expressed | +1 Base Stat |
+| 5-6 | Dominant | +3 Base Stat |
+| 7 | Overlord | +6 Base Stat |
+| 8 | Purebred | +10 Base Stat |
 
-*   **Level 4 (Mycelial Network)**
-    *   **Reward Share:** 5x Multiplier
-    *   **Crit Perk:** On a successful spin, there is a **10% chance** to gain +2 stats instantly (skipping a level).
-    *   *Includes Level 1 & 2 Perks and Level 3 Difficulty.*
+**Splicing (Breeding):**
+*   **Cost:** Burn 2 Parent NFTs + Gas.
+*   **Outcome:** 1 Child NFT.
+*   **Inheritance:** 50/50 chance per slot to inherit from Parent A or B.
+*   **Mutation:** 5% chance per slot to mutate into **Rot** (90% chance) or **Primordial** (10% chance).
 
-### Spin System
-- **Cost:** 1 SHROOM token
-- **Success Rate:**
-  - Substrate 0-2: ~50% (Threshold 128/255)
-  - Substrate 3-4: ~45% (Threshold 140/255)
+### 3. The Canopy (Ecosystem Economy)
+Yields are dynamic. The game targets a balanced ecosystem (33% Cap / 33% Stem / 33% Spores).
+
+*   **Scarcity Multiplier:** Traits that are rare in the global pool earn **Higher Yields** (up to 5x).
+*   **Oversaturation:** Traits that are too common earn **Lower Yields**.
+*   **The Shadow Zone:** If a mushroom's efficiency score drops below **0.8** due to possessing too many oversaturated traits, it enters the Shadow Zone and earns **0 Rewards**. Players must Splice (burn) common mushrooms to restore balance.
+
+### 4. Substrate Levels (Prestige)
+Substrate applies a global multiplier to your shares and unlocks perks.
+
+*   **Level 0 (Base):** 1x Multiplier.
+*   **Level 1 (Regrowth):** 2x Multiplier. *Harvest Perk:* Random stat starts at +1.
+*   **Level 2 (Rooted):** 3x Multiplier. *Spin Perk:* Protected from loss at +1.
+*   **Level 3 (Hardened):** 4x Multiplier. *Trade-off:* Spin success rate drops to 45%.
+*   **Level 4 (Mycelial Network):** 5x Multiplier. *Crit Perk:* 10% chance to gain +2 stats on spin win.
+
+### 5. Spin System
+- **Cost:** 1 SHROOM token.
+- **Success Rate:** ~50% (decreases at Substrate Lvl 3+).
+- **Apex Immunity:** If a mushroom has a **Base Stat of +10** (Tier 4), it is immune to spin penalties for that trait.
 - **Trait Mutation Rules:**
-  - **Win:** -1 → +1, others increment normally (Max +3)
-  - **Loss:** +1 → -1 (Protected at Substrate Lvl 2+), others decrement
-  - **Crit:** Substrate Lvl 4 has a chance to jump +2 on a win
+  - **Win:** -1 → +1, others increment normally (Max +3).
+  - **Loss:** +1 → -1 (Protected at Substrate Lvl 2+ or Base Stat 10), others decrement.
 
-### Harvest
-- Claims pending rewards (SHROOM).
-- Resets all traits to 0 (unless Substrate Level ≥ 1, see above).
-- Recalculates reward shares based on the reset traits.
-
-### Ascend (Prestige)
-- **Requirement:** All 3 traits (Cap, Stem, Spores) must be at **+3**.
-- **Cost:** Burns all currently pending rewards.
+### 6. Ascend
+- **Requirement:** All 3 **Volatile** traits must be exactly **+3**.
+- **Cost:** Burns all pending rewards.
 - **Success:** 20% chance to increase Substrate Level.
-- **Effect:** Always resets traits to 0, regardless of success.
-- **Max Level:** Substrate cannot go higher than 4.
+- **Effect:** Resets Volatile traits to 0. Base Stats are preserved.
 
 ## Installation
 
@@ -102,6 +117,7 @@ VITE_PYTH_CONTRACT_ADDRESS=<pyth_contract>
 VITE_PRICE_FEED_ID=<price_feed_id>
 VITE_PAYMENT_DENOM=factory/<creator>/shroom
 VITE_SPIN_COST=1000000
+VITE_MINT_COST=0
 ```
 
 ## Technology Stack
@@ -111,13 +127,13 @@ VITE_SPIN_COST=1000000
 - **Frontend**: React + TypeScript + Vite
 - **Styling**: Tailwind CSS
 - **Wallet**: Injective Wallet Strategy
-- **Randomness**: Pyth Network Price Feeds
+- **Randomness**: Pyth Network Price Feeds + SHA256 Hashing
 
 ## Security Notes
 
-- Randomness uses Pyth price feeds + block data (pseudo-randomness suitable for low-stakes; consider VRF for high-value production environments).
-- Audit smart contracts before mainnet deployment.
-- Implement rate limiting and anti-bot measures.
+- Randomness uses Pyth price feeds + block data (pseudo-randomness suitable for low-stakes).
+- The "Shadow Zone" logic requires an initial bootstrap period; in testnet mode, the contract may disable this check if total biomass is low (<20).
+- Splicing permanently burns NFTs; UI includes strict confirmation modals.
 
 ## License
 

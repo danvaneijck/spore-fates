@@ -3,7 +3,7 @@ import { Dna } from 'lucide-react';
 
 interface Props {
     genome: number[];
-    baseStats: { cap: number; stem: number; spores: number };
+    baseStats: { base_cap: number; base_stem: number; base_spores: number };
 }
 
 // Gene Type Mapping
@@ -30,9 +30,9 @@ export const GeneticsDisplay: React.FC<Props> = ({ genome, baseStats }) => {
             <div className="flex items-center justify-between mb-4">
 
                 <div className="flex gap-3 text-xs font-mono">
-                    <span className="text-red-400">Base Cap: +{baseStats.cap}</span>
-                    <span className="text-green-400">Base Stem: +{baseStats.stem}</span>
-                    <span className="text-blue-400">Base Spores: +{baseStats.spores}</span>
+                    <span className="text-red-400">Base Cap: +{baseStats.base_cap}</span>
+                    <span className="text-green-400">Base Stem: +{baseStats.base_stem}</span>
+                    <span className="text-blue-400">Base Spores: +{baseStats.base_spores}</span>
                 </div>
             </div>
 
@@ -52,7 +52,7 @@ export const GeneticsDisplay: React.FC<Props> = ({ genome, baseStats }) => {
 
             {slots.includes(4) && (
                 <div className="mt-3 text-xs text-yellow-400 text-center font-bold animate-pulse">
-                    ✨ Primordial Genes Detected - Ascension Possible ✨
+                    ✨ Primordial Gene Active ✨
                 </div>
             )}
         </div>

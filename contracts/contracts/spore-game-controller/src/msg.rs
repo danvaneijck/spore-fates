@@ -55,7 +55,9 @@ pub enum QueryMsg {
 
 #[cw_serde]
 pub struct PendingRewardsResponse {
-    pub pending_rewards: Uint128,
+    pub accumulated_rewards: Uint128, // The "Raw" amount (Hidden/Potential)
+    pub canopy_multiplier: Decimal,   // The current weather (0.0 to 5.0)
+    pub estimated_payout: Uint128,    // What you get if you harvest NOW
 }
 
 #[cw_serde]

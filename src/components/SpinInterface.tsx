@@ -1,6 +1,6 @@
 import React from 'react';
 import { MushroomRenderer } from './MushroomRenderer';
-import { Sparkles, TrendingUp, Award, Loader2 } from 'lucide-react';
+import { Sparkles, TrendingUp, Award, Loader2, Lock, AlertTriangle } from 'lucide-react';
 import { NETWORK_CONFIG } from '../config';
 import { TraitExtension } from '../services/shroomService';
 import { GeneticsDisplay } from './GeneticsDisplay';
@@ -11,7 +11,7 @@ interface SpinInterfaceProps {
   onSpin: (target: 'cap' | 'stem' | 'spores') => Promise<void>;
   onHarvest: () => Promise<void>;
   onAscend: () => Promise<void>;
-  pendingRewards: string;
+  rewardInfo: { accumulated: string, multiplier: string, payout: string };
   isLoading: boolean;
 }
 
@@ -21,7 +21,7 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
   onSpin,
   onHarvest,
   onAscend,
-  pendingRewards,
+  rewardInfo,
   isLoading,
 }) => {
 
@@ -37,7 +37,16 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
   const isMaxVolatile = traits.cap === 3 && traits.stem === 3 && traits.spores === 3;
   const canAscend = isMaxVolatile && traits.substrate < 4;
 
-  const hasRewards = parseFloat(pendingRewards) > 0;
+  const formatVal = (val: string) => (parseInt(val) / Math.pow(10, NETWORK_CONFIG.paymentDecimals)).toFixed(2);
+
+  const payoutVal = parseFloat(formatVal(rewardInfo.payout));
+  const accumulatedVal = parseFloat(formatVal(rewardInfo.accumulated));
+
+  const isShadowZone = parseFloat(rewardInfo.multiplier) < 0.8;
+  const isReduced = parseFloat(rewardInfo.multiplier) < 1.0;
+
+  // Calculated forfeit amount
+  const forfeitAmount = (accumulatedVal - payoutVal).toFixed(2);
 
   const getTraitColor = (value: number) => {
     if (value >= 5) return 'text-yellow-400'; // High base stats
@@ -115,7 +124,7 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
         <div className='mt-5'>
           <GeneticsDisplay
             genome={traits.genome}
-            baseStats={{ cap: traits.base_cap, stem: traits.base_stem, spores: traits.base_spores }}
+            baseStats={traits}
           />
         </div>
 
@@ -188,21 +197,48 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
             <h3 className="text-xl font-bold text-text">Rewards</h3>
           </div>
 
-          <div className="bg-gradient-to-r from-success/20 to-success/10 border border-success/30 rounded-xl p-6 mb-4">
-            <div className="text-sm text-textSecondary mb-1">Pending Rewards</div>
-            <div className="text-3xl font-bold text-success">{pendingRewards} {NETWORK_CONFIG.paymentSymbol}</div>
+          <div className={`relative border rounded-xl p-6 mb-4 transition-colors
+             ${isShadowZone ? 'bg-red-500/5 border-red-500/30' : 'bg-gradient-to-r from-success/20 to-success/10 border-success/30'}`}>
+
+            <div className="text-sm text-textSecondary mb-1">Available Payout</div>
+            <div className={`text-3xl font-bold ${isShadowZone ? 'text-red-500' : 'text-success'}`}>
+              {formatVal(rewardInfo.payout)} {NETWORK_CONFIG.paymentSymbol}
+            </div>
+
+            {/* THE WARNING BOX */}
+            {isReduced && accumulatedVal > 0 && (
+              <div className="mt-4 pt-4 border-t border-border/50">
+                <div className="flex items-start gap-2">
+                  {isShadowZone ? <Lock size={16} className="text-red-400 mt-0.5" /> : <AlertTriangle size={16} className="text-orange-400 mt-0.5" />}
+                  <div>
+                    <div className="text-xs font-bold text-textSecondary uppercase tracking-wide">
+                      {isShadowZone ? 'Shadow Zone Lock' : 'Yield Reduction'}
+                    </div>
+                    <div className="text-sm text-text mt-1">
+                      You have <strong>{formatVal(rewardInfo.accumulated)}</strong> pending, but the current weather ({parseFloat(rewardInfo.multiplier).toFixed(2)}x) is suppressing your yield.
+                    </div>
+                    <div className="text-xs text-red-400 mt-2 font-semibold">
+                      Harvest now to FORFEIT {forfeitAmount} {NETWORK_CONFIG.paymentSymbol}.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <button
             onClick={onHarvest}
-            disabled={isLoading || !hasRewards}
-            className="w-full px-6 py-4 bg-gradient-to-r from-success to-success/80 text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-success/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none"
+            disabled={isLoading || payoutVal <= 0}
+            className={`w-full px-6 py-4 text-white rounded-xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed
+                ${isShadowZone
+                ? 'bg-gray-600 hover:bg-red-600' // Visual warning on the button itself
+                : 'bg-gradient-to-r from-success to-success/80 hover:shadow-lg hover:shadow-success/50'
+              }`}
           >
             {isLoading ? (
-              <span className="flex items-center justify-center gap-2">
-                <Loader2 size={20} className="animate-spin" />
-                Processing...
-              </span>
+              <span className="flex items-center justify-center gap-2"><Loader2 className="animate-spin" /> Processing...</span>
+            ) : isShadowZone ? (
+              'Harvest (Burn 100% Rewards)' // Brutally honest button text
             ) : (
               'Harvest Rewards'
             )}

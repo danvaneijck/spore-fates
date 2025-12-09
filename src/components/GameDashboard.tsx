@@ -1,10 +1,13 @@
 import { Sprout } from "lucide-react";
 import { MintInterface } from "./MintInterface";
-import { Route, Routes, useParams } from "react-router-dom";
+import { Route, Routes, useNavigate, useParams } from "react-router-dom";
 import GameContainer from "./GameContainer";
 import { MushroomGallery } from "./MushroomGallery";
 import { WalletConnect } from "./WalletConnect";
-import { shroomService } from "../services/shroomService";
+import { shroomService, TraitExtension } from "../services/shroomService";
+import { findAttribute } from "../utils/transactionParser";
+import { useState } from "react";
+import { NewMushroomReveal } from "./NewMushroomReveal";
 
 const GalleryWrapper = ({ address, refreshTrigger }: { address: string, refreshTrigger: number }) => {
     // Extract tokenId from the URL (e.g., /play/123)
@@ -22,6 +25,33 @@ const GalleryWrapper = ({ address, refreshTrigger }: { address: string, refreshT
 
 
 const GameDashboard = ({ address, setAddress, refreshTrigger, setRefreshTrigger, executeTransaction, isLoading }) => {
+    const navigate = useNavigate();
+
+    const [revealOpen, setRevealOpen] = useState(false);
+    const [newMushroomId, setNewMushroomId] = useState<string | null>(null);
+    const [newMushroomTraits, setNewMushroomTraits] = useState<TraitExtension | null>(null);
+
+
+    const handleMint = async (priceRaw: string) => {
+        if (!address) return;
+        const msg = shroomService.makeMintMsg(address, priceRaw);
+        const result = await executeTransaction(msg, 'mint');
+
+        if (result) {
+            const tokenId = findAttribute(result, "wasm", 'token_id');
+            if (tokenId) {
+                setNewMushroomId(tokenId);
+                setTimeout(async () => {
+                    const traits = await shroomService.getShroomTraits(tokenId);
+                    if (traits) {
+                        setNewMushroomTraits(traits);
+                        setRevealOpen(true);
+                    }
+                }, 1000);
+            }
+        }
+    };
+
     return (
         <>
             <div className="text-center mb-12">
@@ -81,12 +111,25 @@ const GameDashboard = ({ address, setAddress, refreshTrigger, setRefreshTrigger,
                 )}
             </div>
 
-            <div className=''>
-                <MintInterface onMint={async () => {
-                    const msg = shroomService.makeMintMsg(address);
-                    await executeTransaction(msg, 'mint');
-                }} isLoading={isLoading} />
+            {/* Mint Interface */}
+            <div className='mt-12'>
+                <MintInterface onMint={handleMint} isLoading={isLoading} />
             </div>
+
+            {/* Reveal Modal */}
+            <NewMushroomReveal
+                isOpen={revealOpen}
+                onClose={() => {
+                    setRevealOpen(false);
+                    if (newMushroomId) {
+                        navigate(`/play/${newMushroomId}`);
+                        window.scrollTo(0, 0);
+                    }
+                    setRefreshTrigger(prev => prev + 1);
+                }}
+                childId={newMushroomId}
+                childTraits={newMushroomTraits}
+            />
 
             {/* Info Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-12">

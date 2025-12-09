@@ -33,17 +33,20 @@ export const SpliceModal: React.FC<Props> = ({ isOpen, onClose, onConfirm, paren
                 <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 mb-6">
                     <div className="flex gap-3">
                         <AlertTriangle className="text-red-500 shrink-0" size={20} />
-                        <p className="text-sm text-red-200 text-left">
-                            This action is <strong>irreversible</strong>. The parent NFTs will be destroyed forever.
-                            One new child NFT will be minted with mixed genetics.
-                        </p>
+                        <div className="text-sm text-red-200 text-left">
+                            <p className="mb-2">This action is <strong>irreversible</strong>. The parent NFTs will be destroyed.</p>
+                            <p className="font-bold">
+                                ⚠️ Any Unharvested Rewards on these mushrooms will be LOST.
+                                Please Harvest first if they have value!
+                            </p>
+                        </div>
                     </div>
                 </div>
 
                 <div className="flex gap-3">
                     <button
                         onClick={onClose}
-                        className="flex-1 py-3 bg-background border border-border rounded-xl font-bold hover:bg-white/5 transition-colors"
+                        className="flex-1 py-3 bg-background border border-border rounded-xl font-bold hover:bg-white/5 transition-colors text-white"
                     >
                         Cancel
                     </button>

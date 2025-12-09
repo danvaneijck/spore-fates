@@ -39,6 +39,12 @@ export interface EcosystemMetrics {
     spores_multiplier: string;
 }
 
+export interface RewardInfo {
+    accumulated: string; // Raw
+    multiplier: string;
+    payout: string; // Actual
+}
+
 export const shroomService = {
     /**
      * Query the CW721 contract for a specific token's traits
@@ -84,7 +90,6 @@ export const shroomService = {
                 genome: parsedGenome,
             };
         } catch (error) {
-            console.error("Error fetching traits:", error);
             return null;
         }
     },
@@ -109,25 +114,23 @@ export const shroomService = {
     /**
      * Get the accurate, real-time pending rewards
      */
-    async getPendingRewards(tokenId: string): Promise<string> {
+    async getPendingRewards(tokenId: string): Promise<RewardInfo> {
         try {
-            const queryMsg = {
-                get_pending_rewards: {
-                    token_id: tokenId,
-                },
-            };
-
+            const queryMsg = { get_pending_rewards: { token_id: tokenId } };
             const response = await wasmApi.fetchSmartContractState(
                 NETWORK_CONFIG.gameControllerAddress,
                 queryMsg
             );
-
             const data = JSON.parse(new TextDecoder().decode(response.data));
-            console.log(data);
-            return data.pending_rewards;
+
+            return {
+                accumulated: data.accumulated_rewards,
+                multiplier: data.canopy_multiplier,
+                payout: data.estimated_payout,
+            };
         } catch (error) {
-            console.error("Error fetching pending rewards:", error);
-            return "0";
+            console.error("Error fetching rewards:", error);
+            return { accumulated: "0", multiplier: "1", payout: "0" };
         }
     },
 

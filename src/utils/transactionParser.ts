@@ -73,3 +73,25 @@ export function parseSpinResult(
         return null;
     }
 }
+
+export const findAttribute = (
+    txResult: any,
+    eventType: string,
+    attrKey: string
+): string | null => {
+    try {
+        console.log(txResult);
+        const events = txResult.events;
+        for (const event of events) {
+            if (event.type === "wasm-" + eventType || event.type === "wasm") {
+                const attr = event.attributes.find(
+                    (a: any) => a.key === attrKey
+                );
+                if (attr) return attr.value;
+            }
+        }
+    } catch (e) {
+        console.error("Error parsing logs", e);
+    }
+    return null;
+};

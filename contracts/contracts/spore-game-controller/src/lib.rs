@@ -388,23 +388,18 @@ fn execute_spin(
 
     let new_volatile = if is_success {
         // WIN LOGIC
-        // Critical Hit: Substrate 4 has 10% chance to jump +2
         if traits.substrate >= 4 && random_value % 10 == 0 {
             (current_volatile + 2).min(3)
         } else if current_volatile == -1 {
-            1 // Jump out of negative
+            1
         } else {
             (current_volatile + 1).min(3)
         }
     } else {
         // LOSS LOGIC
-        // Check Apex Immunity (Tier 4 / Base Stat 10)
-        if current_base >= 10 {
-            current_volatile // No penalty
-        }
-        // Check Substrate 2 "Rooted" Perk (Protected at +1)
-        else if current_volatile == 1 && traits.substrate >= 2 {
-            current_volatile // No penalty
+        // Combine protections: Apex Immunity (Base >= 10) OR Rooted Perk (at +1)
+        if current_base >= 10 || (current_volatile == 1 && traits.substrate >= 2) {
+            current_volatile // No penalty (Protected)
         }
         // Standard Penalty
         else if current_volatile == 1 {
@@ -821,8 +816,11 @@ fn execute_splice(
 
     // 8. Prepare Mint & Burn Messages
     let current_id = MINT_COUNTER.load(deps.storage)?;
-    let child_id = (current_id + 1).to_string();
-    MINT_COUNTER.save(deps.storage, &(current_id + 1))?;
+    let next_id = current_id + 1;
+    MINT_COUNTER.save(deps.storage, &next_id)?;
+
+    // FIX: Use current_id for the child, just like execute_mint does
+    let child_id = current_id.to_string();
 
     // Save Child TokenInfo
     let child_shares = calculate_shares(&child_traits);
@@ -948,7 +946,6 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
-// Helper function to calculate rewards on the fly
 fn query_pending_rewards(deps: Deps, token_id: String) -> StdResult<PendingRewardsResponse> {
     let global_state = GLOBAL_STATE.load(deps.storage)?;
     let biomass = BIOMASS.load(deps.storage)?;
@@ -958,31 +955,34 @@ fn query_pending_rewards(deps: Deps, token_id: String) -> StdResult<PendingRewar
         Some(info) => info,
         None => {
             return Ok(PendingRewardsResponse {
-                pending_rewards: Uint128::zero(),
+                accumulated_rewards: Uint128::zero(),
+                canopy_multiplier: Decimal::one(),
+                estimated_payout: Uint128::zero(),
             })
         }
     };
 
-    // 1. Calculate Raw Pending (Standard)
+    // 1. Calculate Raw Accumulated (Standard Staking Math)
     let mut raw_pending = token_info.pending_rewards;
 
     if !token_info.current_shares.is_zero() {
-        let accumulated = token_info
+        let accumulated_since_last_interaction = token_info
             .current_shares
             .checked_mul(global_state.global_reward_index)?
             .checked_sub(token_info.reward_debt)
             .unwrap_or(Uint128::zero());
-        raw_pending = raw_pending.checked_add(accumulated)?;
+        raw_pending = raw_pending.checked_add(accumulated_since_last_interaction)?;
     }
 
     if raw_pending.is_zero() {
         return Ok(PendingRewardsResponse {
-            pending_rewards: Uint128::zero(),
+            accumulated_rewards: Uint128::zero(),
+            canopy_multiplier: Decimal::one(),
+            estimated_payout: Uint128::zero(),
         });
     }
 
-    // 2. Fetch Traits to calculate Weather
-    // Note: We are in a Query context, so we can only do Queries.
+    // 2. Fetch Traits & Calculate Weather
     let nft_info: cw721::msg::NftInfoResponse<NftExtensionMsg> = deps.querier.query_wasm_smart(
         config.cw721_addr.to_string(),
         &cw721::msg::Cw721QueryMsg::<NftExtensionMsg, Empty, Empty>::NftInfo {
@@ -991,12 +991,15 @@ fn query_pending_rewards(deps: Deps, token_id: String) -> StdResult<PendingRewar
     )?;
     let traits = parse_traits(nft_info.extension);
 
-    // 3. Apply Multiplier
     let multiplier = calculate_canopy_multiplier(&biomass, &traits);
-    let final_rewards = raw_pending.mul_floor(multiplier);
+
+    // 3. Calculate Final Payout
+    let final_payout = raw_pending.mul_floor(multiplier);
 
     Ok(PendingRewardsResponse {
-        pending_rewards: final_rewards,
+        accumulated_rewards: raw_pending,
+        canopy_multiplier: multiplier,
+        estimated_payout: final_payout,
     })
 }
 

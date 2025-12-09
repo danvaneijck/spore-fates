@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { EcosystemMetrics, shroomService, TraitExtension } from "../services/shroomService";
+import { EcosystemMetrics, RewardInfo, shroomService, TraitExtension } from "../services/shroomService";
 import { parseSpinResult, SpinResult } from "../utils/transactionParser";
-import { NETWORK_CONFIG } from "../config";
 import { Dna, FlaskConical, Sprout } from "lucide-react";
 import { EcosystemWeather } from "./EcosystemWeather";
 import { SpinInterface } from "./SpinInterface";
@@ -13,7 +12,7 @@ import { BreedingInterface } from "./BreedingInterface";
 
 const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTransaction, isLoading }) => {
 
-    const [activeTab, setActiveTab] = useState<'mutate' | 'breed'>('mutate'); // New Tab State
+    const [activeTab, setActiveTab] = useState<'mutate' | 'breed'>('mutate');
 
     const { tokenId } = useParams();
 
@@ -25,7 +24,7 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
 
     const [metrics, setMetrics] = useState<EcosystemMetrics | null>(null);
 
-    const [displayRewards, setDisplayRewards] = useState('0.00');
+    const [rewardInfo, setRewardInfo] = useState<RewardInfo>({ accumulated: '0', multiplier: '1', payout: '0' });
 
     // Spin wheel state
     const [spinResult, setSpinResult] = useState<SpinResult | null>(null);
@@ -49,8 +48,7 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
 
             // 3. Fetch Rewards
             const rewards = await shroomService.getPendingRewards(tokenId);
-            const displayVal = (parseInt(rewards) / Math.pow(10, NETWORK_CONFIG.paymentDecimals));
-            setDisplayRewards(displayVal.toFixed(2));
+            setRewardInfo(rewards);
         };
 
         fetchData();
@@ -74,7 +72,6 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
         if (!tokenId) return;
         const msg = shroomService.makeHarvestMsg(address, tokenId);
         await executeTransaction(msg, 'harvest');
-        setDisplayRewards('0.00');
     };
 
     const onAscend = async () => {
@@ -138,7 +135,7 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
                 <>
                     <GeneticsDisplay
                         genome={traits.genome}
-                        baseStats={{ cap: traits.base_cap, stem: traits.base_stem, spores: traits.base_spores }}
+                        baseStats={traits}
                     />
                     <SpinInterface
                         tokenId={tokenId}
@@ -146,7 +143,7 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
                         onSpin={onSpin}
                         onHarvest={onHarvest}
                         onAscend={onAscend}
-                        pendingRewards={displayRewards}
+                        rewardInfo={rewardInfo}
                         isLoading={isLoading}
                     />
                 </>

@@ -12,6 +12,7 @@ import {
     Award
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { SporeLogo } from '../components/Logo/SporeLogo';
 
 export const About: React.FC = () => {
     return (
@@ -22,7 +23,11 @@ export const About: React.FC = () => {
                 <Link to="/" className="inline-flex items-center text-textSecondary hover:text-primary transition-colors mb-6">
                     <ArrowLeft size={20} className="mr-2" /> Back to Colony
                 </Link>
-                <h1 className="text-4xl font-bold text-text mb-4">Game Rules & Mechanics</h1>
+                <div className='flex gap-2 items-center'>
+                    <SporeLogo size={60} />
+                    <h1 className="text-4xl font-bold text-text mb-4">Game Rules & Mechanics</h1>
+                </div>
+
                 <p className="text-xl text-textSecondary">
                     Master the art of genetic engineering and ecosystem balance to maximize your yield.
                 </p>

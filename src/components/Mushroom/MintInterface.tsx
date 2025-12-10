@@ -128,7 +128,7 @@ export const MintInterface: React.FC<MintInterfaceProps> = ({
                 <div className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-primary to-accent transition-all duration-[3000ms] ease-out w-full animate-[width_3s_ease-out]" />
               )}
 
-              <div className="relative px-8 py-6 flex items-center justify-between">
+              <div className="relative px-8 py-6 flex-col md:flex-row flex items-center justify-between gap-2">
                 <div className="flex items-center gap-4">
                   {isLoading ? (
                     <div className="w-12 h-12 flex items-center justify-center">

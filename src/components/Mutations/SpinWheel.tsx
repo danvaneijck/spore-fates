@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Sparkles, X, ShieldCheck, Sprout } from 'lucide-react';
+import { SporeLogo } from '../Logo/SporeLogo';
 
 interface SpinWheelProps {
   isSpinning: boolean;
@@ -197,7 +198,7 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
                 }}
               >
                 <div className="text-black/50 animate-pulse">
-                  <Sprout size={32} strokeWidth={2.5} />
+                  <SporeLogo size={40} />
                 </div>
               </div>
             </div>
@@ -231,7 +232,7 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
                   </div>
 
                   <div className="text-white/20">
-                    <Sprout size={20} className="" />
+                    <SporeLogo size={40} />
                   </div>
 
                   <div className="flex flex-col items-center relative">

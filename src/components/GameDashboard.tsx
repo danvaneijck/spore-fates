@@ -15,6 +15,7 @@ import { EcosystemWeather } from "./Info/EcosystemWeather";
 import { useWalletStore } from "../store/walletStore";
 import { useGameStore } from "../store/gameStore";
 import { useTransaction } from "../hooks/useTransaction";
+import { SporeLogo } from "./Logo/SporeLogo";
 
 const GalleryWrapper = () => {
     const { tokenId } = useParams();
@@ -98,8 +99,8 @@ const GameDashboard = () => {
                             } />
                             <Route path="*" element={
                                 <div className="bg-surface rounded-3xl p-4 md:p-12 border border-border text-center h-full flex items-center justify-center min-h-[600px]">
-                                    <div>
-                                        <Sprout size={64} className="text-primary mx-auto mb-4 opacity-50" />
+                                    <div className="items-center flex flex-col">
+                                        <SporeLogo size={60} />
                                         <p className="text-textSecondary text-lg">Select a mushroom from your colony to start playing</p>
                                     </div>
                                 </div>

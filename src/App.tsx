@@ -5,6 +5,7 @@ import { About } from './pages/about';
 import GameDashboard from './components/GameDashboard';
 import { WalletConnectButton } from './components/Wallet/WalletConnectButton';
 import { WalletSelectModal } from './components/Modals/WalletSelectModal';
+import { SporeLogo } from './components/Logo/SporeLogo';
 
 function App() {
 
@@ -22,10 +23,9 @@ function App() {
 
               {/* Logo */}
               <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-                <div className="w-12 h-12 bg-gradient-to-br from-primary to-secondary rounded-2xl flex items-center justify-center">
-                  <Sprout size={28} className="text-white" />
-                </div>
-                <div>
+                <SporeLogo size={60} />
+
+                <div className='hidden md:block'>
                   <h1 className="text-2xl font-bold text-text">SporeFates</h1>
                   <p className="text-xs text-textSecondary">Evolve Your Mushroom NFTs</p>
                 </div>

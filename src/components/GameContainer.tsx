@@ -11,6 +11,7 @@ import { BreedingInterface } from "./Breeding/BreedingInterface";
 import { useWalletStore } from "../store/walletStore";
 import { useGameStore } from "../store/gameStore";
 import { useTransaction } from "../hooks/useTransaction";
+import { SporeLogo } from "./Logo/SporeLogo";
 
 
 const GameContainer = () => {
@@ -148,13 +149,13 @@ const GameContainer = () => {
     const onHarvest = async () => {
         if (!tokenId) return;
         const msg = shroomService.makeHarvestMsg(address, tokenId);
-        await executeTransaction(msg, 'harvest');
+        return await executeTransaction(msg, 'harvest');
     };
 
     const onAscend = async () => {
         if (!tokenId) return;
         const msg = shroomService.makeAscendMsg(address, tokenId);
-        await executeTransaction(msg, 'ascend');
+        return await executeTransaction(msg, 'ascend');
     };
 
     const handleWheelComplete = () => {
@@ -171,7 +172,7 @@ const GameContainer = () => {
         return (
             <div className="bg-surface rounded-3xl p-4 md:p-12 border border-border text-center h-full flex items-center justify-center min-h-[600px]">
                 <div>
-                    <Sprout size={64} className="text-primary mx-auto mb-4 opacity-50" />
+                    <SporeLogo size={60} />
                     <h3 className="text-2xl font-bold text-text mb-2">Select a Mushroom</h3>
                     <p className="text-textSecondary">
                         Choose a mushroom from your colony on the left to start playing!
@@ -182,7 +183,7 @@ const GameContainer = () => {
     }
 
     return (
-        <div className="m-auto w-full bg-surface rounded-3xl p-6 border border-border h-full">
+        <div className="m-auto w-full bg-surface rounded-3xl p-2 md:p-6 border border-border h-full">
 
             {/* TAB NAVIGATION */}
             <div className="flex p-1 bg-background rounded-xl border border-border mb-6">

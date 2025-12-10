@@ -12,6 +12,7 @@ import { BatchMintModal } from '../Modals/BatchMintModal';
 import { MsgExecuteContract } from '@injectivelabs/sdk-ts';
 import { useWalletStore } from '../../store/walletStore';
 import { useGameStore } from '../../store/gameStore';
+import { SporeLogo } from '../Logo/SporeLogo';
 
 interface Props {
     currentTokenId: string;
@@ -257,7 +258,7 @@ export const MushroomGallery: React.FC<Props> = ({ currentTokenId }) => {
             {/* Header */}
             <div className="flex items-center justify-between mb-4">
                 <h3 className="text-text font-bold flex items-center gap-2">
-                    <Sprout size={18} />
+                    <SporeLogo size={40} />
                     Colony ({galleryData.length})
                 </h3>
 
@@ -328,7 +329,7 @@ export const MushroomGallery: React.FC<Props> = ({ currentTokenId }) => {
                     </button>
                 </div>
             ) : (
-                <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-1">
+                <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto dark-scrollbar pr-1">
                     {sortedGallery.map((token) => (
                         <button
                             key={token.id}
@@ -345,7 +346,7 @@ export const MushroomGallery: React.FC<Props> = ({ currentTokenId }) => {
                                     p-2 rounded-lg relative
                                     ${token.id === currentTokenId ? 'bg-primary text-white' : 'bg-surface text-textSecondary'}
                                 `}>
-                                    <Sprout size={18} />
+                                    <SporeLogo size={30} />
                                     {/* Green dot if claimable */}
                                     {token.pendingRewards > 0 && (
                                         <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full border border-surface shadow-sm" />

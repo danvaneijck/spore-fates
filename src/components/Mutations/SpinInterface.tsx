@@ -119,7 +119,7 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
     <>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Left Column - Mushroom Visualization */}
-        <div className="bg-surface rounded-3xl p-6 border border-border">
+        <div className="bg-surface rounded-3xl p-4 md:p-6 border border-border">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-2xl font-bold text-text">#{tokenId}</h3>

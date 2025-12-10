@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { MushroomRenderer } from './MushroomRenderer';
-import { TraitExtension } from '../services/shroomService';
+import { MushroomRenderer } from '../Mushroom/MushroomRenderer';
+import { TraitExtension } from '../../services/shroomService';
 import { X, ArrowRight, Sparkles } from 'lucide-react';
-import { GeneticsDisplay } from './GeneticsDisplay';
+import { GeneticsDisplay } from '../Mushroom/GeneticsDisplay';
 import confetti from 'canvas-confetti';
 
 interface Props {
@@ -28,12 +28,6 @@ export const NewMushroomReveal: React.FC<Props> = ({ isOpen, onClose, childId, c
 
     const handleReveal = () => {
         setStage('revealed');
-        // Fire confetti explosion
-        const duration = 15 * 1000;
-        const animationEnd = Date.now() + duration;
-        const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 60 };
-
-        const randomInRange = (min: number, max: number) => Math.random() * (max - min) + min;
 
         // Fire a burst immediately
         confetti({

@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Loader2, Coins, TrendingUp } from 'lucide-react';
-import { NETWORK_CONFIG } from '../config';
-import { MushroomGrowth } from './MushroomGrowth'; // Import the new component
+import { Sparkles, Loader2, Coins, TrendingUp, Wallet } from 'lucide-react'; // Added Wallet Icon
+import { NETWORK_CONFIG } from '../../config';
+import { MushroomGrowth } from './MushroomGrowth';
+import { shroomService } from '../../services/shroomService';
+import { useWalletConnect } from '../Wallet/WalletConnect';
 
 interface MintInterfaceProps {
   onMint: (price: string) => Promise<void>;
@@ -12,12 +14,15 @@ export const MintInterface: React.FC<MintInterfaceProps> = ({
   onMint,
   isLoading,
 }) => {
+  // 1. Get Wallet State
+  const { connectedWallet, setShowWallets } = useWalletConnect();
+
   const [currentPrice, setCurrentPrice] = useState<string>('0');
   const [displayPrice, setDisplayPrice] = useState<string>('0');
 
-  // Fetch Bonding Curve Price
   const fetchPrice = async () => {
-    const priceRaw = NETWORK_CONFIG.mintCost * Math.pow(10, NETWORK_CONFIG.paymentDecimals);
+    const price = await shroomService.getCurrentMintPrice();
+    const priceRaw = Number(price);
     setCurrentPrice((priceRaw).toString());
     const readable = (Number(priceRaw) / Math.pow(10, NETWORK_CONFIG.paymentDecimals)).toFixed(2);
     setDisplayPrice(readable);
@@ -28,6 +33,15 @@ export const MintInterface: React.FC<MintInterfaceProps> = ({
     const interval = setInterval(fetchPrice, 10000);
     return () => clearInterval(interval);
   }, [isLoading]);
+
+  // 2. Handle Click Logic
+  const handleMainAction = () => {
+    if (!connectedWallet) {
+      setShowWallets(true); // Open Modal
+    } else {
+      onMint(currentPrice); // Execute Mint
+    }
+  };
 
   return (
     <div className="max-w-4xl mx-auto mt-6">
@@ -41,7 +55,6 @@ export const MintInterface: React.FC<MintInterfaceProps> = ({
               ? 'w-32 h-32 bg-surface border border-primary/30'
               : 'w-20 h-20 bg-gradient-to-br from-primary to-primary/60 shadow-primary/30'}`}>
 
-            {/* Conditional Rendering: Static Icon vs Growth Animation */}
             {isLoading ? (
               <MushroomGrowth />
             ) : (
@@ -60,7 +73,7 @@ export const MintInterface: React.FC<MintInterfaceProps> = ({
           </p>
         </div>
 
-        {/* Features Grid (Hidden while growing to focus attention) */}
+        {/* Features Grid */}
         {!isLoading && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="bg-background rounded-xl p-6 border border-border/50">
@@ -89,7 +102,6 @@ export const MintInterface: React.FC<MintInterfaceProps> = ({
 
         {/* Mint Button Area */}
         <div className="relative">
-          {/* Price Indicator */}
           {!isLoading && (
             <div className="flex justify-center mb-4">
               <div className="inline-flex items-center gap-2 bg-background px-4 py-2 rounded-lg border border-border">
@@ -101,26 +113,22 @@ export const MintInterface: React.FC<MintInterfaceProps> = ({
           )}
 
           <div className="relative">
-            {/* Glow effect */}
             <div className={`absolute inset-0 bg-gradient-to-r from-primary via-secondary to-accent opacity-20 blur-2xl rounded-2xl transition-opacity
                 ${isLoading ? 'opacity-40 animate-pulse' : 'opacity-20'}`} />
 
             <button
-              onClick={() => onMint(currentPrice)}
+              onClick={handleMainAction}
               disabled={isLoading}
               className="relative w-full group overflow-hidden rounded-2xl"
             >
-              {/* Button Background */}
               <div className="absolute inset-0 bg-gradient-to-r from-primary via-secondary to-accent opacity-100 group-hover:opacity-90 transition-opacity" />
               <div className="absolute inset-[2px] bg-gradient-to-br from-surface to-background rounded-2xl" />
 
-              {/* Progress Bar (Visible only when loading) */}
               {isLoading && (
                 <div className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-primary to-accent transition-all duration-[3000ms] ease-out w-full animate-[width_3s_ease-out]" />
               )}
 
-              {/* Button content */}
-              <div className="relative px-8 py-6 flex items-center justify-between">
+              <div className="relative px-8 py-6 flex-col md:flex-row flex items-center justify-between gap-2">
                 <div className="flex items-center gap-4">
                   {isLoading ? (
                     <div className="w-12 h-12 flex items-center justify-center">
@@ -128,21 +136,32 @@ export const MintInterface: React.FC<MintInterfaceProps> = ({
                     </div>
                   ) : (
                     <div className="w-12 h-12 bg-gradient-to-br from-primary to-primary/60 rounded-xl flex items-center justify-center shadow-lg shadow-primary/30 group-hover:scale-110 transition-transform">
-                      <Sparkles size={24} className="text-white" />
+                      {/* 3. Conditional Icon */}
+                      {!connectedWallet ? (
+                        <Wallet size={24} className="text-white" />
+                      ) : (
+                        <Sparkles size={24} className="text-white" />
+                      )}
                     </div>
                   )}
 
                   <div className="text-left">
+                    {/* 4. Conditional Text */}
                     <div className="text-2xl font-bold text-text group-hover:text-primary transition-colors">
-                      {isLoading ? 'Cultivating...' : 'Mint Mushroom'}
+                      {isLoading
+                        ? 'Cultivating...'
+                        : (!connectedWallet ? 'Connect Wallet' : 'Mint Mushroom')
+                      }
                     </div>
                     <div className="text-sm text-textSecondary">
-                      {isLoading ? 'Please wait for confirmation' : 'Start your Spore Fates journey'}
+                      {isLoading
+                        ? 'Please wait for confirmation'
+                        : (!connectedWallet ? 'Connect wallet to mint' : 'Start your Spore Fates journey')
+                      }
                     </div>
                   </div>
                 </div>
 
-                {/* Price badge (fades out on load) */}
                 <div className={`flex items-center gap-3 bg-gradient-to-br from-primary/20 to-secondary/20 px-6 py-3 rounded-xl border border-primary/30 transition-opacity duration-300
                     ${isLoading ? 'opacity-0' : 'opacity-100'}`}>
                   <Coins size={24} className="text-primary" />
@@ -151,7 +170,7 @@ export const MintInterface: React.FC<MintInterfaceProps> = ({
                       Price
                     </div>
                     <div className="text-xl font-bold text-text">
-                      {NETWORK_CONFIG.mintCost}
+                      {displayPrice}
                     </div>
                   </div>
                 </div>
@@ -159,7 +178,6 @@ export const MintInterface: React.FC<MintInterfaceProps> = ({
             </button>
           </div>
         </div>
-
       </div>
     </div>
   );

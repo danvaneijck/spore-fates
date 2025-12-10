@@ -3,7 +3,7 @@ use std::str::FromStr;
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{
     entry_point, to_json_binary, Addr, BankMsg, Binary, Coin, Decimal, Deps, DepsMut, Empty, Env,
-    MessageInfo, Response, StdResult, Uint128, WasmMsg,
+    MessageInfo, Response, StdResult, Uint128, Uint64, WasmMsg,
 };
 use cw2::set_contract_version;
 use cw721::msg::NftExtensionMsg;
@@ -17,16 +17,20 @@ pub mod state;
 
 use crate::error::ContractError;
 use crate::msg::{
-    EcosystemMetricsResponse, ExecuteMsg, GameStatsResponse, InstantiateMsg,
-    PendingRewardsResponse, QueryMsg, TraitTarget,
+    BeaconResponse, EcosystemMetricsResponse, ExecuteMsg, GameStatsResponse, InstantiateMsg,
+    MintPriceResponse, OracleQueryMsg, PendingRewardsResponse, PendingSpinResponse,
+    PlayerProfileResponse, QueryMsg, TraitTarget,
 };
 use crate::state::{
-    GameConfig, GameStats, GlobalState, TokenInfo, BIOMASS, CONFIG, GAME_STATS, GLOBAL_STATE,
-    MINT_COUNTER, TOKEN_INFO,
+    GameConfig, GameStats, GlobalState, PendingSpin, TokenInfo, BIOMASS, CONFIG, GAME_STATS,
+    GLOBAL_STATE, MINT_COUNTER, PENDING_SPINS, TOKEN_INFO,
 };
 
 const CONTRACT_NAME: &str = "crates.io:spore-game-controller";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+const DRAND_GENESIS: u64 = 1692803367;
+const DRAND_PERIOD: u64 = 3;
 
 fn parse_traits(extension: NftExtensionMsg) -> TraitExtension {
     let attributes = extension.attributes.unwrap_or_default();
@@ -93,8 +97,8 @@ pub fn instantiate(
         payment_denom: msg.payment_denom,
         spin_cost: msg.spin_cost,
         mint_cost: msg.mint_cost,
-        pyth_contract_addr: deps.api.addr_validate(&msg.pyth_contract_addr)?,
-        price_feed_id: msg.price_feed_id,
+        mint_cost_increment: msg.mint_cost_increment,
+        oracle_addr: deps.api.addr_validate(&msg.oracle_addr)?,
         cw721_addr: deps.api.addr_validate(&msg.cw721_addr)?,
     };
 
@@ -140,6 +144,7 @@ pub fn execute(
             token_id,
             trait_target,
         } => execute_spin(deps, env, info, token_id, trait_target),
+        ExecuteMsg::ResolveSpin { token_id } => execute_resolve_spin(deps, env, info, token_id),
         ExecuteMsg::Harvest { token_id } => execute_harvest(deps, env, info, token_id),
         ExecuteMsg::Ascend { token_id } => execute_ascend(deps, env, info, token_id),
         ExecuteMsg::Mint {} => execute_mint(deps, env, info),
@@ -191,91 +196,85 @@ fn get_randomness(env: &Env, _deps: &DepsMut, nonce: u64) -> Result<u8, Contract
 
 fn execute_mint(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
+    let mut stats = GAME_STATS.load(deps.storage)?; // Load stats to get total_minted count
 
-    // 1. Payment Logic
-    if config.mint_cost > Uint128::zero() {
+    // 1. Calculate Bonding Curve Price
+    // Price = Base + (TotalMinted * Increment)
+    let increment_total = config.mint_cost_increment * Uint128::from(stats.total_minted);
+    let current_price = config.mint_cost + increment_total;
+
+    // 2. Validate Payment
+    if current_price > Uint128::zero() {
         let payment = info
             .funds
             .iter()
             .find(|coin| coin.denom == config.payment_denom)
             .ok_or(ContractError::InvalidPayment {})?;
 
-        if payment.amount < config.mint_cost {
+        if payment.amount < current_price {
             return Err(ContractError::InsufficientFunds {});
         }
     }
 
-    // 2. Increment Mint Counter
+    // 3. ID Logic
     let current_id_num = MINT_COUNTER.load(deps.storage)?;
     let next_id_num = current_id_num + 1;
     MINT_COUNTER.save(deps.storage, &next_id_num)?;
     let token_id = current_id_num.to_string();
 
-    // 3. Load Global State for Randomness
+    // 4. Load Global State
     let mut global_state = GLOBAL_STATE.load(deps.storage)?;
 
-    // 4. Generate Genetics
-    // We get a seed from the block/nonce
+    // 5. Generate Genetics
     let seed_byte = get_randomness(&env, &deps, global_state.spin_nonce)?;
-    global_state.spin_nonce += 1; // Always increment nonce
+    global_state.spin_nonce += 1;
 
-    // Expand the seed into 32 bytes using Sha256 so we have enough entropy for 8 genes
     let mut hasher = Sha256::new();
     hasher.update([seed_byte]);
-    hasher.update(env.block.time.nanos().to_be_bytes()); // Add extra salt
-    hasher.update(token_id.as_bytes()); // Add ID salt
+    hasher.update(env.block.time.nanos().to_be_bytes());
+    hasher.update(token_id.as_bytes());
     let hash = hasher.finalize();
 
     let mut new_genes: Vec<u8> = Vec::with_capacity(8);
-
-    // Iterate 8 times for 8 slots
     for i in 0..8 {
-        let random_byte = hash[i]; // Take the i-th byte from the hash
-
-        // Tier 1 Generation Logic:
-        // 0 = Rot, 1 = Cap, 2 = Stem, 3 = Spores
-        // We use % 4. (Primordial '4' is not available in standard mint)
-        let gene = random_byte % 4;
+        let random_byte = hash[i];
+        let gene = random_byte % 4; // 0-3 (No Primordial for standard mint)
         new_genes.push(gene);
     }
 
-    // 5. Create Trait Extension
     let mut new_traits = TraitExtension {
         cap: 0,
         stem: 0,
         spores: 0,
         substrate: 0,
         genes: new_genes,
-        base_cap: 0,    // Will calculate
-        base_stem: 0,   // Will calculate
-        base_spores: 0, // Will calculate
+        base_cap: 0,
+        base_stem: 0,
+        base_spores: 0,
     };
-
-    // Calculate Base Stats based on the genes we just generated
     new_traits.recalculate_base_stats();
 
-    // 6. Calculate Shares & Rewards
+    // 6. Calculate Shares & Distribute Rewards
     let initial_shares = calculate_shares(&new_traits);
 
-    if !global_state.total_shares.is_zero() && config.mint_cost > Uint128::zero() {
-        let reward_per_share = config.mint_cost.checked_div(global_state.total_shares)?;
+    // DISTRIBUTE THE MINT COST TO EXISTING HOLDERS
+    if !global_state.total_shares.is_zero() && current_price > Uint128::zero() {
+        let reward_per_share = current_price.checked_div(global_state.total_shares)?;
         global_state.global_reward_index = global_state
             .global_reward_index
             .checked_add(reward_per_share)?;
     }
 
-    global_state.total_shares = global_state.total_shares.checked_add(initial_shares)?;
-
-    // SAVE GLOBAL STATE
+    // Update Biomass
     let mut biomass = BIOMASS.load(deps.storage)?;
-
-    // This helper handles both Biomass addition AND Share addition
     add_stats_to_globals(&mut biomass, &mut global_state, &new_traits);
 
     BIOMASS.save(deps.storage, &biomass)?;
     GLOBAL_STATE.save(deps.storage, &global_state)?;
 
     // 7. Save Token Info
+    // Note: The new token starts with debt equal to the NEW index (after mint cost distribution)
+    // This means the minter does NOT get a cut of their own mint cost.
     let token_info = TokenInfo {
         current_shares: initial_shares,
         reward_debt: initial_shares.checked_mul(global_state.global_reward_index)?,
@@ -283,8 +282,7 @@ fn execute_mint(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, 
     };
     TOKEN_INFO.save(deps.storage, &token_id, &token_info)?;
 
-    // 8. Mint Message (CW721)
-    // Note: The CW721 contract must be updated to accept the new TraitExtension struct
+    // 8. Execute Mint via CW721
     let mint_msg = WasmMsg::Execute {
         contract_addr: config.cw721_addr.to_string(),
         msg: to_json_binary(&spore_fates::cw721::ExecuteMsg::Mint {
@@ -296,7 +294,7 @@ fn execute_mint(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, 
         funds: vec![],
     };
 
-    let mut stats = GAME_STATS.load(deps.storage)?;
+    // Update Stats
     stats.total_minted += 1;
     GAME_STATS.save(deps.storage, &stats)?;
 
@@ -304,30 +302,29 @@ fn execute_mint(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, 
         .add_message(mint_msg)
         .add_attribute("action", "mint")
         .add_attribute("token_id", token_id)
+        .add_attribute("price_paid", current_price)
         .add_attribute("owner", info.sender))
 }
 
 fn calculate_shares(traits: &TraitExtension) -> Uint128 {
-    // OLD FORMULA: (100 + Volatile*10) * SubstrateMultiplier
-    // NEW FORMULA: ((Volatile + Base) * 10) * SubstrateMultiplier
-
-    let base_shares = 100i128;
-
-    // Combine Volatile (-3 to 3) + Base (0 to 10)
-    // Range per stat: -3 to 13
+    // 1. Calculate Raw Power
     let cap_score = (traits.cap as i128) + (traits.base_cap as i128);
     let stem_score = (traits.stem as i128) + (traits.base_stem as i128);
     let spores_score = (traits.spores as i128) + (traits.base_spores as i128);
 
-    let total_stat_score = cap_score + stem_score + spores_score;
+    // Ensure min power is 1 to avoid 0 shares
+    let raw_power = (cap_score + stem_score + spores_score).max(1);
 
-    // Multiplier based on Substrate (0 = 1x, 4 = 5x)
+    // 2. QUADRATIC CURVE: Power^2
+    // This makes a Power 10 mushroom worth 4x more than a Power 5 mushroom (100 vs 25)
+    // instead of just 2x more. This massively disincentivizes hoarding low-tier shrooms.
+    let quadratic_shares = raw_power.pow(2) as u128;
+
+    // 3. Substrate Multiplier
     let substrate_multiplier = 1 + (traits.substrate as u128);
 
-    // Calculate total
-    let total = (base_shares + (total_stat_score * 10)).max(10) as u128;
-
-    Uint128::from(total * substrate_multiplier)
+    // Final Shares
+    Uint128::from(quadratic_shares * substrate_multiplier)
 }
 
 fn execute_spin(
@@ -339,37 +336,12 @@ fn execute_spin(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
-    // 1. Payment Check
-    let payment = info
-        .funds
-        .iter()
-        .find(|coin| coin.denom == config.payment_denom)
-        .ok_or(ContractError::InvalidPayment {})?;
-
-    if payment.amount < config.spin_cost {
-        return Err(ContractError::InsufficientFunds {});
+    // 0. Check if already pending (Prevent double-spending)
+    if PENDING_SPINS.has(deps.storage, &token_id) {
+        return Err(ContractError::HasPendingSpin {});
     }
 
-    // 2. Load State
-    let mut global_state = GLOBAL_STATE.load(deps.storage)?;
-    let mut token_info = TOKEN_INFO
-        .may_load(deps.storage, &token_id)?
-        .unwrap_or(TokenInfo {
-            current_shares: Uint128::zero(),
-            reward_debt: Uint128::zero(),
-            pending_rewards: Uint128::zero(),
-        });
-
-    // 3. Accumulate existing rewards before modifying shares
-    if !token_info.current_shares.is_zero() && !global_state.total_shares.is_zero() {
-        let pending = token_info
-            .current_shares
-            .checked_mul(global_state.global_reward_index)?
-            .checked_sub(token_info.reward_debt)?;
-        token_info.pending_rewards = token_info.pending_rewards.checked_add(pending)?;
-    }
-
-    // 4. Fetch Traits
+    // 1. Verify Ownership & Traits (For dynamic pricing)
     let nft_info: cw721::msg::NftInfoResponse<NftExtensionMsg> = deps.querier.query_wasm_smart(
         config.cw721_addr.to_string(),
         &cw721::msg::Cw721QueryMsg::<NftExtensionMsg, Empty, Empty>::NftInfo {
@@ -377,91 +349,195 @@ fn execute_spin(
         },
     )?;
 
+    // Check sender is owner (Standard verification)
+    let owner_res: cw721::msg::OwnerOfResponse = deps.querier.query_wasm_smart(
+        config.cw721_addr.to_string(),
+        &cw721::msg::Cw721QueryMsg::<NftExtensionMsg, Empty, Empty>::OwnerOf {
+            token_id: token_id.clone(),
+            include_expired: None,
+        },
+    )?;
+    if owner_res.owner != info.sender.to_string() {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    let traits = parse_traits(nft_info.extension);
+
+    // 2. Calculate Cost
+    let substrate_multiplier: u128 = match traits.substrate {
+        0 => 1,
+        1 => 2,
+        2 => 3,
+        3 => 5,
+        _ => 10,
+    };
+    let required_payment = config
+        .spin_cost
+        .checked_mul(Uint128::from(substrate_multiplier))?;
+
+    // 3. Take Payment
+    let payment = info
+        .funds
+        .iter()
+        .find(|c| c.denom == config.payment_denom)
+        .ok_or(ContractError::InvalidPayment {})?;
+    if payment.amount < required_payment {
+        return Err(ContractError::InsufficientFunds {});
+    }
+
+    // 4. Calculate Target Round (Current + 1)
+    let now = env.block.time.seconds();
+    let current_round = (now - DRAND_GENESIS) / DRAND_PERIOD;
+    let target_round = current_round + 1;
+
+    // 5. Save Pending State
+    let pending = PendingSpin {
+        token_id: token_id.clone(),
+        player: info.sender,
+        target: trait_target,
+        bid_amount: required_payment,
+        target_round,
+    };
+    PENDING_SPINS.save(deps.storage, &token_id, &pending)?;
+
+    // We do NOT distribute rewards yet. We hold the funds in the contract until resolution.
+    // If we distributed now, and the spin failed/timeout, we couldn't refund easily.
+
+    Ok(Response::new()
+        .add_attribute("action", "request_spin")
+        .add_attribute("token_id", token_id)
+        .add_attribute("target_round", target_round.to_string()))
+}
+
+fn execute_resolve_spin(
+    deps: DepsMut,
+    _env: Env,
+    _info: MessageInfo, // Anyone can call this (Public Keeper)
+    token_id: String,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    let pending = PENDING_SPINS
+        .load(deps.storage, &token_id)
+        .map_err(|_| ContractError::NoPendingSpin {})?;
+
+    // 1. Fetch Randomness from Oracle
+    let oracle_res: BeaconResponse = deps.querier.query_wasm_smart(
+        config.oracle_addr.to_string(),
+        &OracleQueryMsg::Beacon {
+            round: Uint64::from(pending.target_round),
+        },
+    )?;
+
+    // 2. Generate Deterministic Result
+    // We mix randomness + token_id to ensure unique outcomes if multiple people spin on same round
+    let mut hasher = Sha256::new();
+    hasher.update(oracle_res.uniform_seed); // Use uniform_seed from response
+    hasher.update(token_id.as_bytes());
+    let result_hash = hasher.finalize();
+    let random_value = result_hash[0]; // 0-255
+
+    // 3. Load Data needed for Game Logic
+    let mut global_state = GLOBAL_STATE.load(deps.storage)?;
+    let mut token_info = TOKEN_INFO.may_load(deps.storage, &token_id)?.unwrap(); // Should exist
+
+    let nft_info: cw721::msg::NftInfoResponse<NftExtensionMsg> = deps.querier.query_wasm_smart(
+        config.cw721_addr.to_string(),
+        &cw721::msg::Cw721QueryMsg::<NftExtensionMsg, Empty, Empty>::NftInfo {
+            token_id: token_id.clone(),
+        },
+    )?;
     let mut traits = parse_traits(nft_info.extension);
 
-    // 5. RNG
-    let random_value = get_randomness(&env, &deps, global_state.spin_nonce)?;
-    global_state.spin_nonce += 1;
+    // 4. --- GAME LOGIC (Copied & Adapted from previous execute_spin) ---
 
-    // 6. Game Logic
+    // A. Update Pending Rewards (Accumulate)
+    if !token_info.current_shares.is_zero() && !global_state.total_shares.is_zero() {
+        let accrued = token_info
+            .current_shares
+            .checked_mul(global_state.global_reward_index)?
+            .checked_sub(token_info.reward_debt)?;
+        token_info.pending_rewards += accrued;
+    }
+
+    // B. Determine Win/Loss
     let success_threshold = if traits.substrate >= 3 { 140u8 } else { 128u8 };
     let is_success = random_value >= success_threshold;
 
-    // Identify which stat we are modifying
-    let (current_volatile, current_base) = match trait_target {
+    let (current_val, current_base) = match pending.target {
         TraitTarget::Cap => (traits.cap, traits.base_cap),
         TraitTarget::Stem => (traits.stem, traits.base_stem),
         TraitTarget::Spores => (traits.spores, traits.base_spores),
     };
 
-    let new_volatile = if is_success {
-        // WIN LOGIC
+    let new_val = if is_success {
         if traits.substrate >= 4 && random_value % 10 == 0 {
-            (current_volatile + 2).min(3)
-        } else if current_volatile == -1 {
+            (current_val + 2).min(3)
+        } else if current_val == -1 {
             1
         } else {
-            (current_volatile + 1).min(3)
+            (current_val + 1).min(3)
         }
     } else {
-        // LOSS LOGIC
-        // Combine protections: Apex Immunity (Base >= 10) OR Rooted Perk (at +1)
-        if current_base >= 10 || (current_volatile == 1 && traits.substrate >= 2) {
-            current_volatile // No penalty (Protected)
-        }
-        // Standard Penalty
-        else if current_volatile == 1 {
-            -1 // Drop to negative
+        // Protection Logic
+        if current_base >= 10 || (current_val == 1 && traits.substrate >= 2) {
+            current_val
+        } else if current_val == 1 {
+            -1
         } else {
-            (current_volatile - 1).max(-3)
+            (current_val - 1).max(-3)
         }
     };
 
-    // Apply changes
-    match trait_target {
-        TraitTarget::Cap => traits.cap = new_volatile,
-        TraitTarget::Stem => traits.stem = new_volatile,
-        TraitTarget::Spores => traits.spores = new_volatile,
+    // Apply
+    match pending.target {
+        TraitTarget::Cap => traits.cap = new_val,
+        TraitTarget::Stem => traits.stem = new_val,
+        TraitTarget::Spores => traits.spores = new_val,
     }
 
-    // 7. Recalculate Shares (This now includes Base Stats via the updated helper)
+    // C. Update Shares & Globals
     let new_shares = calculate_shares(&traits);
-
     global_state.total_shares = global_state
         .total_shares
         .checked_sub(token_info.current_shares)?
         .checked_add(new_shares)?;
 
-    // 8. Distribute Spin Cost to Global Pool
+    // D. Distribute the Payment NOW
     let old_index = global_state.global_reward_index;
 
     if !global_state.total_shares.is_zero() {
-        let reward_per_share = config.spin_cost.checked_div(global_state.total_shares)?;
-        global_state.global_reward_index = global_state
-            .global_reward_index
-            .checked_add(reward_per_share)?;
+        let reward_per_share = pending.bid_amount.checked_div(global_state.total_shares)?;
+        global_state.global_reward_index += reward_per_share;
     }
 
-    // 9. Instant Reward Update (Self-distribution)
-    // If the user owns shares, they immediately get a tiny slice of their own spin cost back
-    let new_index = global_state.global_reward_index;
-    let index_increase = new_index.checked_sub(old_index)?;
+    // Calculate how much the index went up due to this spin
+    let index_increase = global_state.global_reward_index.checked_sub(old_index)?;
 
+    // If the user has shares (post-spin), give them their slice of their own bid
     if !new_shares.is_zero() {
         let self_reward = new_shares.checked_mul(index_increase)?;
         token_info.pending_rewards = token_info.pending_rewards.checked_add(self_reward)?;
     }
 
+    // E. Update User's Debt
     token_info.current_shares = new_shares;
-    token_info.reward_debt = new_shares.checked_mul(new_index)?;
+    token_info.reward_debt = new_shares.checked_mul(global_state.global_reward_index)?;
 
-    // 10. Save & Response
+    // 5. Save Everything
     GLOBAL_STATE.save(deps.storage, &global_state)?;
     TOKEN_INFO.save(deps.storage, &token_id, &token_info)?;
 
+    // Increment Stats
+    let mut stats = GAME_STATS.load(deps.storage)?;
+    stats.total_spins += 1;
+    GAME_STATS.save(deps.storage, &stats)?;
+
+    // 6. Cleanup
+    PENDING_SPINS.remove(deps.storage, &token_id);
+
+    // 7. Update CW721
     let update_msg = WasmMsg::Execute {
         contract_addr: config.cw721_addr.to_string(),
-        // Ensure we use the local Enum that supports traits
         msg: to_json_binary(&spore_fates::cw721::ExecuteMsg::UpdateTraits {
             token_id: token_id.clone(),
             traits,
@@ -469,19 +545,21 @@ fn execute_spin(
         funds: vec![],
     };
 
-    let mut stats = GAME_STATS.load(deps.storage)?;
-    stats.total_spins += 1;
-    GAME_STATS.save(deps.storage, &stats)?;
+    let target_str = match pending.target {
+        TraitTarget::Cap => "cap",
+        TraitTarget::Stem => "stem",
+        TraitTarget::Spores => "spores",
+    };
 
     Ok(Response::new()
         .add_message(update_msg)
-        .add_attribute("action", "spin")
+        .add_attribute("action", "resolve_spin")
         .add_attribute("token_id", token_id)
-        .add_attribute("trait_target", format!("{:?}", trait_target))
+        .add_attribute("random_value", random_value.to_string())
         .add_attribute("success", is_success.to_string())
-        .add_attribute("base_stat", current_base.to_string())
-        .add_attribute("old_volatile", current_volatile.to_string())
-        .add_attribute("new_volatile", new_volatile.to_string()))
+        .add_attribute("trait_target", target_str)
+        .add_attribute("old_value", current_val.to_string())
+        .add_attribute("new_value", new_val.to_string()))
 }
 
 fn execute_harvest(
@@ -542,14 +620,24 @@ fn execute_harvest(
     // Payout = Pending * Multiplier
     let payout_amount = token_info.pending_rewards.mul_floor(multiplier);
 
-    if payout_amount.is_zero() {
-        // If they are in the Shadow Zone (Multiplier 0), they technically harvest nothing,
-        // but we still reset their pending rewards to 0 because they "spent" the harvest action.
-        // This prevents people from hoarding pending rewards forever until weather improves.
-        // (Game Design Choice: remove this line if you want them to keep pending rewards)
-        token_info.pending_rewards = Uint128::zero();
+    // Calculate what was forfeited due to bad weather/shadow zone
+    let forfeited_amount = if payout_amount < token_info.pending_rewards {
+        token_info.pending_rewards - payout_amount
+    } else {
+        Uint128::zero()
+    };
 
-        // We still proceed to reset stats below...
+    // If money was lost (Penalty), recycle it back to the global pool
+    if !forfeited_amount.is_zero() && !global_state.total_shares.is_zero() {
+        let recycle_per_share = forfeited_amount.checked_div(global_state.total_shares)?;
+        global_state.global_reward_index = global_state
+            .global_reward_index
+            .checked_add(recycle_per_share)?;
+    }
+
+    // Shadow Zone check (if multiplier was 0)
+    if payout_amount.is_zero() {
+        token_info.pending_rewards = Uint128::zero();
     }
 
     // 5. Send Rewards (if any)
@@ -749,7 +837,6 @@ fn execute_splice(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
-    // Prevent splicing the same mushroom
     if parent_1_id == parent_2_id {
         return Err(ContractError::InvalidParents {});
     }
@@ -764,21 +851,48 @@ fn execute_splice(
     let mut global_state = GLOBAL_STATE.load(deps.storage)?;
     let mut biomass = BIOMASS.load(deps.storage)?;
 
+    // --- NEW: CALCULATE FORFEITED REWARDS ---
+    let mut total_forfeited = Uint128::zero();
+
+    // Helper closure to calculate raw pending for a token
+    let calculate_forfeit = |token_id: &String, g_state: &GlobalState| -> StdResult<Uint128> {
+        let t_info = TOKEN_INFO.load(deps.storage, token_id)?;
+        let mut pending = t_info.pending_rewards;
+        if !t_info.current_shares.is_zero() {
+            let accrued = t_info
+                .current_shares
+                .checked_mul(g_state.global_reward_index)?
+                .checked_sub(t_info.reward_debt)
+                .unwrap_or(Uint128::zero());
+            pending += accrued;
+        }
+        Ok(pending)
+    };
+
+    total_forfeited += calculate_forfeit(&parent_1_id, &global_state)?;
+    total_forfeited += calculate_forfeit(&parent_2_id, &global_state)?;
+    // ----------------------------------------
+
     // 3. Remove Parents from Ecosystem (Biomass & Shares)
-    // We must remove their stats from the global pools before we burn them
+    // IMPORTANT: We remove shares BEFORE distributing the forfeited rewards.
+    // This ensures the rewards go to the survivors, not the mushrooms being burned.
     remove_stats_from_globals(&mut biomass, &mut global_state, &parent_1_traits);
     remove_stats_from_globals(&mut biomass, &mut global_state, &parent_2_traits);
 
-    // Remove their pending rewards / share info from local state
-    // (In a full implementation, you might want to auto-claim rewards here,
-    // but for now we assume they are sacrificed)
     TOKEN_INFO.remove(deps.storage, &parent_1_id);
     TOKEN_INFO.remove(deps.storage, &parent_2_id);
 
+    // --- NEW: RECYCLE TO SURVIVORS ---
+    if !total_forfeited.is_zero() && !global_state.total_shares.is_zero() {
+        let recycle_per_share = total_forfeited.checked_div(global_state.total_shares)?;
+        global_state.global_reward_index = global_state
+            .global_reward_index
+            .checked_add(recycle_per_share)?;
+    }
+    // ---------------------------------
+
     // 4. Generate Child Genes
     let mut child_genes: Vec<u8> = Vec::with_capacity(8);
-
-    // Use nonce for RNG
     let seed = get_randomness(&env, &deps, global_state.spin_nonce)?;
     global_state.spin_nonce += 1;
 
@@ -790,18 +904,17 @@ fn execute_splice(
 
     for i in 0..8 {
         let rng_byte = hash[i];
-
-        // 5% Mutation Chance (13/255 approx 5%)
         if rng_byte < 13 {
-            // Mutation occurred!
-            // 10% Chance for Primordial (Ascension), 90% Rot
+            // 5% Mutation
             if rng_byte < 2 {
-                child_genes.push(4); // Primordial (Gold)
-            } else {
-                child_genes.push(0); // Rot (Grey)
+                child_genes.push(4);
             }
+            // Primordial
+            else {
+                child_genes.push(0);
+            } // Rot
         } else {
-            // Standard Inheritance (50/50)
+            // Inheritance
             if rng_byte % 2 == 0 {
                 child_genes.push(parent_1_traits.genes.get(i).cloned().unwrap_or(0));
             } else {
@@ -810,12 +923,12 @@ fn execute_splice(
         }
     }
 
-    // 5. Create Child
+    // 5. Create Child & Stats
     let mut child_traits = TraitExtension {
         cap: 0,
         stem: 0,
         spores: 0,
-        substrate: 0, // Volatile starts at 0
+        substrate: 0,
         genes: child_genes,
         base_cap: 0,
         base_stem: 0,
@@ -826,28 +939,33 @@ fn execute_splice(
     // 6. Add Child to Ecosystem
     add_stats_to_globals(&mut biomass, &mut global_state, &child_traits);
 
-    // 7. Save Global Updates
+    // 7. Save
     BIOMASS.save(deps.storage, &biomass)?;
     GLOBAL_STATE.save(deps.storage, &global_state)?;
 
-    // 8. Prepare Mint & Burn Messages
+    // Update Stats (Burn count)
+    let mut game_stats = GAME_STATS.load(deps.storage)?;
+    game_stats.total_burned += 2;
+    game_stats.total_minted += 1; // Technically 1 mint event
+                                  // Optional: You could track "Total Recycled" here too for game stats
+    GAME_STATS.save(deps.storage, &game_stats)?;
+
+    // 8. Mint Child
     let current_id = MINT_COUNTER.load(deps.storage)?;
     let next_id = current_id + 1;
     MINT_COUNTER.save(deps.storage, &next_id)?;
-
-    // FIX: Use current_id for the child, just like execute_mint does
     let child_id = current_id.to_string();
 
-    // Save Child TokenInfo
     let child_shares = calculate_shares(&child_traits);
     let child_info = TokenInfo {
         current_shares: child_shares,
+        // Child enters at the NEW, higher index (doesn't get the recycled rewards)
         reward_debt: child_shares.checked_mul(global_state.global_reward_index)?,
         pending_rewards: Uint128::zero(),
     };
     TOKEN_INFO.save(deps.storage, &child_id, &child_info)?;
 
-    // CW721 Messages
+    // Messages
     let burn_msg_1 = WasmMsg::Execute {
         contract_addr: config.cw721_addr.to_string(),
         msg: to_json_binary(&spore_fates::cw721::ExecuteMsg::Burn {
@@ -873,11 +991,6 @@ fn execute_splice(
         funds: vec![],
     };
 
-    let mut stats = GAME_STATS.load(deps.storage)?;
-    stats.total_burned += 2;
-    stats.total_minted += 1;
-    GAME_STATS.save(deps.storage, &stats)?;
-
     Ok(Response::new()
         .add_message(burn_msg_1)
         .add_message(burn_msg_2)
@@ -885,7 +998,8 @@ fn execute_splice(
         .add_attribute("action", "splice")
         .add_attribute("parent_1", parent_1_id)
         .add_attribute("parent_2", parent_2_id)
-        .add_attribute("child_id", child_id))
+        .add_attribute("child_id", child_id)
+        .add_attribute("recycled_amount", total_forfeited))
 }
 
 fn load_and_verify_nft(
@@ -955,6 +1069,9 @@ fn remove_stats_from_globals(
 #[entry_point]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
+        QueryMsg::GetPendingSpin { token_id } => {
+            to_json_binary(&query_pending_spin(deps, token_id)?)
+        }
         QueryMsg::Config {} => to_json_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::GlobalState {} => to_json_binary(&GLOBAL_STATE.load(deps.storage)?),
         QueryMsg::TokenInfo { token_id } => {
@@ -965,7 +1082,101 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         }
         QueryMsg::GetEcosystemMetrics {} => to_json_binary(&query_ecosystem_metrics(deps)?),
         QueryMsg::GetGameStats {} => to_json_binary(&query_game_stats(deps)?),
+        QueryMsg::GetCurrentMintPrice {} => to_json_binary(&query_current_mint_price(deps)?),
+        QueryMsg::GetPlayerProfile {
+            address,
+            start_after,
+            limit,
+        } => to_json_binary(&query_player_profile(deps, address, start_after, limit)?),
     }
+}
+
+fn query_pending_spin(deps: Deps, token_id: String) -> StdResult<PendingSpinResponse> {
+    match PENDING_SPINS.may_load(deps.storage, &token_id)? {
+        Some(pending) => Ok(PendingSpinResponse {
+            is_pending: true,
+            target_round: pending.target_round,
+        }),
+        None => Ok(PendingSpinResponse {
+            is_pending: false,
+            target_round: 0,
+        }),
+    }
+}
+
+fn query_player_profile(
+    deps: Deps,
+    address: String,
+    start_after: Option<String>,
+    limit: Option<u32>,
+) -> StdResult<PlayerProfileResponse> {
+    let config = CONFIG.load(deps.storage)?;
+    let global_state = GLOBAL_STATE.load(deps.storage)?;
+
+    // 1. Validate Limit (Default 30, Max 100)
+    let limit = limit.unwrap_or(30).min(100);
+
+    // 2. Query CW721 for a page of tokens
+    let tokens_response: cw721::msg::TokensResponse = deps.querier.query_wasm_smart(
+        config.cw721_addr.to_string(),
+        &&cw721::msg::Cw721QueryMsg::<TraitExtension, Empty, Empty>::Tokens {
+            owner: address,
+            start_after,
+            limit: Some(limit),
+        },
+    )?;
+
+    let mut total_shares = Uint128::zero();
+    let mut total_rewards = Uint128::zero();
+    let mut best_id: Option<String> = None;
+    let mut max_shares = Uint128::zero();
+
+    // 3. Iterate through this page
+    for token_id in tokens_response.tokens.iter() {
+        if let Some(info) = TOKEN_INFO.may_load(deps.storage, token_id)? {
+            // Sum Shares
+            total_shares += info.current_shares;
+
+            // Track Best (Local Max)
+            if info.current_shares > max_shares {
+                max_shares = info.current_shares;
+                best_id = Some(token_id.clone());
+            }
+
+            // Sum Rewards
+            let mut pending = info.pending_rewards;
+            if !info.current_shares.is_zero() {
+                let accrued = info
+                    .current_shares
+                    .checked_mul(global_state.global_reward_index)?
+                    .checked_sub(info.reward_debt)
+                    .unwrap_or(Uint128::zero());
+                pending += accrued;
+            }
+            total_rewards += pending;
+        }
+    }
+
+    // 4. Get cursor for next page
+    let last_scanned_id = tokens_response.tokens.last().cloned();
+
+    Ok(PlayerProfileResponse {
+        total_mushrooms: tokens_response.tokens.len() as u64,
+        total_shares,
+        total_pending_rewards: total_rewards,
+        best_mushroom_id: best_id,
+        last_scanned_id, // Return it so frontend knows where to continue
+    })
+}
+
+fn query_current_mint_price(deps: Deps) -> StdResult<MintPriceResponse> {
+    let config = CONFIG.load(deps.storage)?;
+    let stats = GAME_STATS.load(deps.storage)?;
+
+    let increment_total = config.mint_cost_increment * Uint128::from(stats.total_minted);
+    let price = config.mint_cost + increment_total;
+
+    Ok(MintPriceResponse { price })
 }
 
 fn query_game_stats(deps: Deps) -> StdResult<GameStatsResponse> {
@@ -1147,15 +1358,15 @@ mod tests {
         deps: DepsMut,
         creator: &Addr,
         cw721: &Addr,
-        pyth: &Addr,
+        oracle: &Addr,
     ) -> Result<Response, ContractError> {
         let msg = InstantiateMsg {
             payment_denom: PAYMENT_DENOM.to_string(),
             spin_cost: Uint128::new(1_000_000),
             mint_cost: Uint128::new(0),
-            pyth_contract_addr: pyth.to_string(),
-            price_feed_id: "test_feed_id".to_string(),
+            mint_cost_increment: Uint128::new(0),
             cw721_addr: cw721.to_string(),
+            oracle_addr: oracle.to_string(),
         };
         let info = message_info(creator, &[]);
         instantiate(deps, mock_env(), info, msg)
@@ -1283,58 +1494,341 @@ mod tests {
     }
 
     #[test]
+    fn test_mint_bonding_curve() {
+        let mut deps = mock_deps_custom();
+        let creator = deps.api.addr_make("creator");
+        let user = deps.api.addr_make("user");
+        let cw721 = deps.api.addr_make("cw721");
+        let oracle = deps.api.addr_make("oracle");
+
+        // 1. Instantiate
+        let msg = InstantiateMsg {
+            payment_denom: PAYMENT_DENOM.to_string(),
+            spin_cost: Uint128::new(100),
+            mint_cost: Uint128::new(100),
+            mint_cost_increment: Uint128::new(10),
+            oracle_addr: oracle.to_string(),
+            cw721_addr: cw721.to_string(),
+        };
+        let info = message_info(&creator, &[]);
+        instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+        // 2. Mint #1
+        let info = message_info(&user, &coins(100, PAYMENT_DENOM));
+        let res = execute(deps.as_mut(), mock_env(), info, ExecuteMsg::Mint {}).unwrap();
+
+        assert_eq!(res.attributes[0].value, "mint"); // Index 0 is action
+        assert_eq!(res.attributes[1].value, "1"); // Index 1 is token_id
+
+        // Verify Price went up
+        let query_msg = QueryMsg::GetCurrentMintPrice {};
+        let res = query(deps.as_ref(), mock_env(), query_msg).unwrap();
+        let price_response: MintPriceResponse = from_json(&res).unwrap();
+        assert_eq!(price_response.price, Uint128::new(110));
+
+        // 3. Mint #2
+        let info = message_info(&user, &coins(110, PAYMENT_DENOM));
+        let res = execute(deps.as_mut(), mock_env(), info, ExecuteMsg::Mint {}).unwrap();
+        assert_eq!(res.attributes[1].value, "2"); // Check Token ID
+
+        // Verify Price went up again
+        let query_msg = QueryMsg::GetCurrentMintPrice {};
+        let res = query(deps.as_ref(), mock_env(), query_msg).unwrap();
+        let price_response: MintPriceResponse = from_json(&res).unwrap();
+        assert_eq!(price_response.price, Uint128::new(120));
+    }
+
+    #[test]
+    fn test_splice_success() {
+        let mut deps = mock_deps_custom();
+        let creator = deps.api.addr_make("creator");
+        let user = deps.api.addr_make("user");
+        let cw721 = deps.api.addr_make("cw721");
+        let pyth = deps.api.addr_make("pyth");
+
+        setup_contract(deps.as_mut(), &creator, &cw721, &pyth).unwrap();
+
+        // Setup Mock Querier to handle TWO tokens (Parent 1 and Parent 2)
+        let user_str = user.to_string();
+        let cw721_str = cw721.to_string();
+
+        deps.querier.update_wasm(move |query| match query {
+            CosmWasmQuery::Smart { contract_addr, msg } => {
+                if contract_addr == &cw721_str {
+                    let parsed: cw721::msg::Cw721QueryMsg<NftExtensionMsg, Empty, Empty> =
+                        from_json(msg).unwrap();
+                    match parsed {
+                        // Handle Ownership Check
+                        cw721::msg::Cw721QueryMsg::OwnerOf { token_id, .. } => {
+                            if token_id == "1" || token_id == "2" {
+                                let resp = OwnerOfResponse {
+                                    owner: user_str.clone(),
+                                    approvals: vec![],
+                                };
+                                SystemResult::Ok(ContractResult::Ok(to_json_binary(&resp).unwrap()))
+                            } else {
+                                SystemResult::Err(SystemError::InvalidRequest {
+                                    error: "Not found".into(),
+                                    request: msg.clone(),
+                                })
+                            }
+                        }
+                        // Handle Trait Fetching
+                        cw721::msg::Cw721QueryMsg::NftInfo { token_id } => {
+                            let genes = if token_id == "1" {
+                                vec![1, 1, 1, 1, 1, 1, 1, 1] // Parent 1: All Cap
+                            } else {
+                                vec![2, 2, 2, 2, 2, 2, 2, 2] // Parent 2: All Stem
+                            };
+
+                            let extension = NftExtensionMsg {
+                                attributes: Some(
+                                    TraitExtension {
+                                        genes,
+                                        ..TraitExtension::default()
+                                    }
+                                    .into(),
+                                ),
+                                ..NftExtensionMsg::default()
+                            };
+
+                            let resp = NftInfoResponse {
+                                token_uri: None,
+                                extension,
+                            };
+                            SystemResult::Ok(ContractResult::Ok(to_json_binary(&resp).unwrap()))
+                        }
+                        _ => SystemResult::Err(SystemError::UnsupportedRequest {
+                            kind: "skip".into(),
+                        }),
+                    }
+                } else {
+                    SystemResult::Err(SystemError::UnsupportedRequest {
+                        kind: "wrong contract".into(),
+                    })
+                }
+            }
+            _ => SystemResult::Err(SystemError::UnsupportedRequest {
+                kind: "skip".into(),
+            }),
+        });
+
+        // Seed TOKEN_INFO so splicing can delete them
+        let dummy_info = TokenInfo {
+            current_shares: Uint128::zero(),
+            reward_debt: Uint128::zero(),
+            pending_rewards: Uint128::zero(),
+        };
+        TOKEN_INFO
+            .save(deps.as_mut().storage, "1", &dummy_info)
+            .unwrap();
+        TOKEN_INFO
+            .save(deps.as_mut().storage, "2", &dummy_info)
+            .unwrap();
+        // Set Mint Counter to 2 (since 1 and 2 exist)
+        MINT_COUNTER.save(deps.as_mut().storage, &2).unwrap();
+
+        // EXECUTE SPLICE
+        let info = message_info(&user, &[]);
+        let msg = ExecuteMsg::Splice {
+            parent_1_id: "1".to_string(),
+            parent_2_id: "2".to_string(),
+        };
+        let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+        // Verify Actions
+        assert_eq!(res.attributes[0].value, "splice");
+        assert_eq!(res.attributes[3].value, "2"); // Child ID (Mint Logic: uses current (2), sets next to 3)
+
+        // Verify Messages sent to CW721
+        assert_eq!(res.messages.len(), 3);
+        // Msg 0: Burn 1
+        // Msg 1: Burn 2
+        // Msg 2: Mint Child
+    }
+
+    #[test]
+    fn test_ascend_success() {
+        let mut deps = mock_deps_custom();
+        let creator = deps.api.addr_make("creator");
+        let user = deps.api.addr_make("user");
+        let cw721 = deps.api.addr_make("cw721");
+        let pyth = deps.api.addr_make("pyth");
+
+        setup_contract(deps.as_mut(), &creator, &cw721, &pyth).unwrap();
+
+        // 1. Setup NFT
+        let traits = TraitExtension {
+            cap: 3,
+            stem: 3,
+            spores: 3,
+            substrate: 0,
+            ..TraitExtension::default()
+        };
+        mock_querier_with_nft(&mut deps.querier, &cw721, "1", &user, traits);
+
+        // 2. Add Pending Rewards
+        let token_info = TokenInfo {
+            current_shares: Uint128::new(100),
+            reward_debt: Uint128::zero(),
+            pending_rewards: Uint128::new(500),
+        };
+        TOKEN_INFO
+            .save(deps.as_mut().storage, "1", &token_info)
+            .unwrap();
+
+        let mut global_state = GLOBAL_STATE.load(deps.as_ref().storage).unwrap();
+        global_state.total_shares = Uint128::new(100);
+        GLOBAL_STATE
+            .save(deps.as_mut().storage, &global_state)
+            .unwrap();
+
+        let mut env = mock_env();
+        env.block.time = cosmwasm_std::Timestamp::from_nanos(0);
+
+        let msg = ExecuteMsg::Ascend {
+            token_id: "1".to_string(),
+        };
+        let info = message_info(&user, &[]);
+
+        let res = execute(deps.as_mut(), env, info, msg).unwrap();
+
+        assert_eq!(res.attributes[0].value, "ascend");
+
+        // ... (rest of the assertions remain the same)
+    }
+
+    #[test]
+    fn test_harvest_success() {
+        let mut deps = mock_deps_custom();
+        let creator = deps.api.addr_make("creator");
+        let user = deps.api.addr_make("user");
+        let cw721 = deps.api.addr_make("cw721");
+        let pyth = deps.api.addr_make("pyth");
+
+        setup_contract(deps.as_mut(), &creator, &cw721, &pyth).unwrap();
+
+        // 1. Setup NFT
+        let traits = TraitExtension::default();
+        mock_querier_with_nft(&mut deps.querier, &cw721, "1", &user, traits);
+
+        // 2. Setup Token Info with Rewards
+        let token_info = TokenInfo {
+            current_shares: Uint128::new(100),
+            reward_debt: Uint128::zero(),
+            pending_rewards: Uint128::new(1000),
+        };
+        TOKEN_INFO
+            .save(deps.as_mut().storage, "1", &token_info)
+            .unwrap();
+
+        let mut global_state = GLOBAL_STATE.load(deps.as_ref().storage).unwrap();
+        global_state.total_shares = Uint128::new(100);
+        GLOBAL_STATE
+            .save(deps.as_mut().storage, &global_state)
+            .unwrap();
+
+        let biomass = GlobalBiomass {
+            total_base_cap: 100,
+            total_base_stem: 100,
+            total_base_spores: 100,
+        };
+        BIOMASS.save(deps.as_mut().storage, &biomass).unwrap();
+
+        // 3. Harvest
+        let msg = ExecuteMsg::Harvest {
+            token_id: "1".to_string(),
+        };
+        let info = message_info(&user, &[]);
+        let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+
+        assert_eq!(res.attributes[0].value, "harvest");
+        // Note: attributes[2] might change based on order, usually 'base_payout' or 'final_payout'
+        // Let's check specifically for final_payout or base_payout
+        let payout_attr = res
+            .attributes
+            .iter()
+            .find(|a| a.key == "final_payout")
+            .unwrap();
+        assert_eq!(payout_attr.value, "1000");
+
+        // 4. Verify Bank Send Message
+        let bank_msg = &res.messages[0].msg;
+        match bank_msg {
+            cosmwasm_std::CosmosMsg::Bank(BankMsg::Send { to_address, amount }) => {
+                assert_eq!(to_address, &user.to_string());
+                assert_eq!(amount[0].amount, Uint128::new(1000));
+            }
+            _ => panic!("Expected Bank Send message"),
+        }
+
+        // 5. Verify Pending Reset
+        let stored_info = TOKEN_INFO.load(deps.as_ref().storage, "1").unwrap();
+        assert_eq!(stored_info.pending_rewards, Uint128::zero());
+    }
+    #[test]
     fn test_calculate_shares() {
-        // Base case: all traits at 0
+        // Formula: (max(1, sum_stats))^2 * (1 + substrate)
+
+        // Case 1: All traits 0
+        // Sum = 0 -> Max(1) -> 1^2 * 1 = 1
         let traits = TraitExtension {
             cap: 0,
             stem: 0,
             spores: 0,
             substrate: 0,
-            genes: vec![0, 0, 0, 0, 0, 0, 0, 0],
+            genes: vec![0; 8],
             base_cap: 0,
             base_stem: 0,
             base_spores: 0,
         };
-        assert_eq!(calculate_shares(&traits), Uint128::new(100));
+        assert_eq!(calculate_shares(&traits), Uint128::new(1));
 
-        // Positive traits
+        // Case 2: Positive traits
+        // Sum = 2 + 1 + 3 = 6
+        // Shares = 6^2 * 1 = 36
         let traits = TraitExtension {
             cap: 2,
             stem: 1,
             spores: 3,
             substrate: 0,
-            genes: vec![0, 0, 0, 0, 0, 0, 0, 0],
+            genes: vec![0; 8],
             base_cap: 0,
             base_stem: 0,
             base_spores: 0,
         };
-        assert_eq!(calculate_shares(&traits), Uint128::new(160)); // 100 + 20 + 10 + 30
+        assert_eq!(calculate_shares(&traits), Uint128::new(36));
 
-        // With substrate multiplier
+        // Case 3: With substrate multiplier
+        // Sum = 1 + 1 + 1 = 3
+        // Substrate 2 -> Multiplier 3
+        // Shares = 3^2 * 3 = 9 * 3 = 27
         let traits = TraitExtension {
             cap: 1,
             stem: 1,
             spores: 1,
             substrate: 2,
-            genes: vec![0, 0, 0, 0, 0, 0, 0, 0],
+            genes: vec![0; 8],
             base_cap: 0,
             base_stem: 0,
             base_spores: 0,
         };
-        assert_eq!(calculate_shares(&traits), Uint128::new(390)); // (100 + 30) * 3
+        assert_eq!(calculate_shares(&traits), Uint128::new(27));
 
-        // Negative traits
+        // Case 4: Negative traits (Floor check)
+        // Sum = -6 -> Max(1)
+        // Shares = 1^2 * 1 = 1
         let traits = TraitExtension {
             cap: -2,
             stem: -1,
             spores: -3,
             substrate: 0,
-            genes: vec![0, 0, 0, 0, 0, 0, 0, 0],
+            genes: vec![0; 8],
             base_cap: 0,
             base_stem: 0,
             base_spores: 0,
         };
-        assert_eq!(calculate_shares(&traits), Uint128::new(40)); // 100 - 20 - 10 - 30
+        assert_eq!(calculate_shares(&traits), Uint128::new(1));
     }
 
     #[test]
@@ -1347,12 +1841,15 @@ mod tests {
 
         setup_contract(deps.as_mut(), &creator, &cw721, &pyth).unwrap();
 
+        let traits = TraitExtension::default();
+        mock_querier_with_nft(&mut deps.querier, &cw721, "1", &owner, traits);
+
         let msg = ExecuteMsg::Spin {
             token_id: "1".to_string(),
             trait_target: TraitTarget::Cap,
         };
 
-        // Send insufficient payment
+        // Send insufficient payment (500k vs 1M required)
         let info = message_info(&owner, &coins(500_000, PAYMENT_DENOM));
         let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
 
@@ -1368,6 +1865,9 @@ mod tests {
         let owner = deps.api.addr_make("owner");
 
         setup_contract(deps.as_mut(), &creator, &cw721, &pyth).unwrap();
+
+        let traits = TraitExtension::default();
+        mock_querier_with_nft(&mut deps.querier, &cw721, "1", &owner, traits);
 
         let msg = ExecuteMsg::Spin {
             token_id: "1".to_string(),
@@ -1386,41 +1886,146 @@ mod tests {
         let mut deps = mock_deps_custom();
         let creator = deps.api.addr_make("creator");
         let cw721 = deps.api.addr_make("cw721");
-        let pyth = deps.api.addr_make("pyth");
+        let oracle = deps.api.addr_make("oracle");
         let owner = deps.api.addr_make("owner");
 
-        setup_contract(deps.as_mut(), &creator, &cw721, &pyth).unwrap();
+        // 2. Setup with Oracle
+        setup_contract(deps.as_mut(), &creator, &cw721, &oracle).unwrap();
 
-        // Set up mock querier with NFT
+        // 3. Define traits
         let traits = TraitExtension {
             cap: 0,
             stem: 0,
             spores: 0,
             substrate: 0,
-            genes: vec![0, 0, 0, 0, 0, 0, 0, 0],
+            genes: vec![0; 8],
             base_cap: 0,
             base_stem: 0,
             base_spores: 0,
         };
-        mock_querier_with_nft(&mut deps.querier, &cw721, "1", &owner, traits);
 
+        // 4. Register Mock NFT
+        mock_querier_with_nft(&mut deps.querier, &cw721, "1", &owner, traits.clone());
+
+        // --- FIX: SEED TOKEN_INFO MANUALLY ---
+        // Since we didn't call 'mint', we must manually create the token entry in storage
+        let token_info = TokenInfo {
+            current_shares: Uint128::new(100), // Default linear shares for 0 stats
+            reward_debt: Uint128::zero(),
+            pending_rewards: Uint128::zero(),
+        };
+        TOKEN_INFO
+            .save(deps.as_mut().storage, "1", &token_info)
+            .unwrap();
+
+        // Update Global State to reflect this existing token
+        // If we don't do this, reward calculations might divide by zero or underflow
+        let mut global_state = GLOBAL_STATE.load(deps.as_ref().storage).unwrap();
+        global_state.total_shares = Uint128::new(100);
+        GLOBAL_STATE
+            .save(deps.as_mut().storage, &global_state)
+            .unwrap();
+        // -------------------------------------
+
+        // ==========================================
+        // PHASE 1: REQUEST SPIN
+        // ==========================================
         let msg = ExecuteMsg::Spin {
             token_id: "1".to_string(),
             trait_target: TraitTarget::Cap,
         };
 
+        let mut env = mock_env();
+        env.block.time = cosmwasm_std::Timestamp::from_seconds(1692803367 + 30);
+
         let info = message_info(&owner, &coins(1_000_000, PAYMENT_DENOM));
-        let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+        let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
 
-        // Should have update message
+        assert_eq!(res.attributes[0].value, "request_spin");
+
+        // Check pending spin exists
+        let query_msg = QueryMsg::GetPendingSpin {
+            token_id: "1".to_string(),
+        };
+        let res = query(deps.as_ref(), env.clone(), query_msg).unwrap();
+        let pending: PendingSpinResponse = from_json(&res).unwrap();
+        assert!(pending.is_pending);
+
+        // ==========================================
+        // PHASE 2: RESOLVE SPIN
+        // ==========================================
+
+        // Re-setup mock querier for Phase 2 (Logic + Oracle)
+        let cw721_str = cw721.to_string();
+        let oracle_str = oracle.to_string();
+        let owner_str = owner.to_string();
+        let traits_clone = traits.clone();
+
+        // Need to capture the contract addr to verify the WasmMsg later
+        let cw721_addr_verification = cw721_str.clone();
+
+        deps.querier.update_wasm(move |query| match query {
+            CosmWasmQuery::Smart { contract_addr, msg } => {
+                if contract_addr == &cw721_str {
+                    // MOCK NFT
+                    let parsed: cw721::msg::Cw721QueryMsg<NftExtensionMsg, Empty, Empty> =
+                        from_json(msg).unwrap();
+                    match parsed {
+                        cw721::msg::Cw721QueryMsg::NftInfo { .. } => {
+                            let extension = NftExtensionMsg {
+                                attributes: Some(traits_clone.clone().into()),
+                                ..NftExtensionMsg::default()
+                            };
+                            SystemResult::Ok(ContractResult::Ok(
+                                to_json_binary(&NftInfoResponse {
+                                    token_uri: None,
+                                    extension,
+                                })
+                                .unwrap(),
+                            ))
+                        }
+                        _ => SystemResult::Ok(ContractResult::Ok(
+                            to_json_binary(&OwnerOfResponse {
+                                owner: owner_str.clone(),
+                                approvals: vec![],
+                            })
+                            .unwrap(),
+                        )),
+                    }
+                } else if contract_addr == &oracle_str {
+                    // MOCK ORACLE RANDOMNESS
+                    let resp = BeaconResponse {
+                        uniform_seed: [123u8; 32],
+                    };
+                    SystemResult::Ok(ContractResult::Ok(to_json_binary(&resp).unwrap()))
+                } else {
+                    SystemResult::Err(SystemError::UnsupportedRequest {
+                        kind: "unknown addr".into(),
+                    })
+                }
+            }
+            _ => SystemResult::Err(SystemError::UnsupportedRequest {
+                kind: "skip".into(),
+            }),
+        });
+
+        // Execute Resolve
+        let resolve_msg = ExecuteMsg::ResolveSpin {
+            token_id: "1".to_string(),
+        };
+        let info = message_info(&owner, &[]);
+        let res = execute(deps.as_mut(), env, info, resolve_msg).unwrap();
+
+        assert_eq!(res.attributes[0].value, "resolve_spin");
+
+        // Verify NFT Update Message sent
         assert_eq!(res.messages.len(), 1);
-        assert_eq!(res.attributes[0].value, "spin");
-
-        // Check global state updated
-        let global_state: GlobalState =
-            from_json(&query(deps.as_ref(), mock_env(), QueryMsg::GlobalState {}).unwrap())
-                .unwrap();
-        assert_eq!(global_state.spin_nonce, 1);
+        match &res.messages[0].msg {
+            cosmwasm_std::CosmosMsg::Wasm(WasmMsg::Execute { contract_addr, .. }) => {
+                assert_eq!(contract_addr, &cw721_addr_verification);
+            }
+            _ => panic!("Expected Wasm Execute"),
+        }
     }
 
     #[test]

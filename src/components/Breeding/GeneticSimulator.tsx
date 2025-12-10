@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Activity, Zap, AlertTriangle } from 'lucide-react';
+import { Activity, Zap } from 'lucide-react';
 
 interface Props {
     genomeA: number[];

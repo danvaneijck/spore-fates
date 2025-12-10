@@ -1,16 +1,16 @@
 import React, { useState } from 'react';
-import { TraitExtension, shroomService } from '../services/shroomService';
-import { NETWORK_CONFIG } from '../config';
-import { MushroomRenderer } from './MushroomRenderer';
-import { GeneticsDisplay } from './GeneticsDisplay';
+import { TraitExtension, shroomService } from '../../services/shroomService';
+import { NETWORK_CONFIG } from '../../config';
+import { MushroomRenderer } from '../Mushroom/MushroomRenderer';
+import { GeneticsDisplay } from '../Mushroom/GeneticsDisplay';
 import { PartnerSelector } from './PartnerSelector';
-import { GitMerge, ArrowRight, AlertTriangle, Loader2, Flame } from 'lucide-react';
-import { SpliceModal } from './SpliceModal';
-import { NewMushroomReveal } from './NewMushroomReveal';
+import { GitMerge, Loader2 } from 'lucide-react';
+import { SpliceModal } from '../Modals/SpliceModal';
+import { NewMushroomReveal } from '../Overlays/NewMushroomReveal';
 import { useNavigate } from 'react-router-dom';
-import { findAttribute } from '../utils/transactionParser';
+import { findAttribute } from '../../utils/transactionParser';
 import { GeneticSimulator } from './GeneticSimulator';
-import { PendingRewardsWarning } from './PendingRewardsWarning';
+import { PendingRewardsWarning } from '../Info/PendingRewardsWarning';
 
 interface Props {
     address: string;
@@ -181,6 +181,7 @@ export const BreedingInterface: React.FC<Props> = ({
                 <div className="bg-surface rounded-3xl p-6 border border-border">
                     <h3 className="text-lg font-bold text-text mb-4">Select Breeding Partner</h3>
                     <PartnerSelector
+                        parentAGenome={parentATraits.genome}
                         address={address}
                         excludeId={parentAId}
                         selectedId={parentBId}

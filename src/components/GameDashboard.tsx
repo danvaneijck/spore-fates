@@ -1,37 +1,43 @@
+// src/components/GameDashboard.tsx
+
 import { Sprout } from "lucide-react";
-import { MintInterface } from "./MintInterface";
+import { MintInterface } from "./Mushroom/MintInterface";
 import { Route, Routes, useNavigate, useParams } from "react-router-dom";
 import GameContainer from "./GameContainer";
-import { MushroomGallery } from "./MushroomGallery";
-import { WalletConnect } from "./WalletConnect";
+import { MushroomGallery } from "./Mushroom/MushroomGallery";
 import { shroomService, TraitExtension } from "../services/shroomService";
 import { findAttribute } from "../utils/transactionParser";
 import { useState } from "react";
-import { NewMushroomReveal } from "./NewMushroomReveal";
-import { GlobalStatsBanner } from "./GlobalStatsBanner";
+import { NewMushroomReveal } from "./Overlays/NewMushroomReveal";
+import { GlobalStatsBanner } from "./Banners/GlobalStatsBanner";
+import { PlayerStatsCard } from "./Info/PlayerStatsCard";
+import { EcosystemWeather } from "./Info/EcosystemWeather";
+import { useWalletStore } from "../store/walletStore";
+import { useGameStore } from "../store/gameStore";
+import { useTransaction } from "../hooks/useTransaction";
+import { SporeLogo } from "./Logo/SporeLogo";
 
-const GalleryWrapper = ({ address, refreshTrigger }: { address: string, refreshTrigger: number }) => {
-    // Extract tokenId from the URL (e.g., /play/123)
+const GalleryWrapper = () => {
     const { tokenId } = useParams();
-
     return (
         <MushroomGallery
-            address={address}
-            // Pass the ID or empty string if on the root page
             currentTokenId={tokenId || ''}
-            refreshTrigger={refreshTrigger}
         />
     );
 };
 
+const GameDashboard = () => {
+    const { connectedWallet: address } = useWalletStore();
+    const { refreshTrigger } = useGameStore();
 
-const GameDashboard = ({ address, setAddress, refreshTrigger, setRefreshTrigger, executeTransaction, isLoading }) => {
+    const { executeTransaction, isLoading } = useTransaction();
+
     const navigate = useNavigate();
+    const { triggerRefresh } = useGameStore();
 
     const [revealOpen, setRevealOpen] = useState(false);
     const [newMushroomId, setNewMushroomId] = useState<string | null>(null);
     const [newMushroomTraits, setNewMushroomTraits] = useState<TraitExtension | null>(null);
-
 
     const handleMint = async (priceRaw: string) => {
         if (!address) return;
@@ -55,22 +61,30 @@ const GameDashboard = ({ address, setAddress, refreshTrigger, setRefreshTrigger,
 
     return (
         <>
-
             <GlobalStatsBanner refreshTrigger={refreshTrigger} />
 
+            {address && (
+                <div className="mb-8">
+                    <PlayerStatsCard address={address} refreshTrigger={refreshTrigger} />
+                </div>
+            )}
+
             {/* Main Content Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-8 items-start mt-4">
+            <div className="grid grid-cols-1 lg:grid-cols-[420px_1fr] gap-6 items-start mt-4">
                 {/* Left Column - Gallery */}
                 {address && (
-                    <div className="w-full lg:w-[320px]">
+                    <div className="w-full lg:w-[420px]">
+                        <EcosystemWeather />
+
                         <Routes>
+
                             <Route
                                 path="/play/:tokenId"
-                                element={<GalleryWrapper address={address} refreshTrigger={refreshTrigger} />}
+                                element={<GalleryWrapper />}
                             />
                             <Route
                                 path="*"
-                                element={<GalleryWrapper address={address} refreshTrigger={refreshTrigger} />}
+                                element={<GalleryWrapper />}
                             />
                         </Routes>
                     </div>
@@ -78,21 +92,15 @@ const GameDashboard = ({ address, setAddress, refreshTrigger, setRefreshTrigger,
 
                 {/* Right Column - Game Interface */}
                 {address && (
-                    <div className="flex-1 min-h-[600px] mb-10">
+                    <div className="flex-1 min-h-[600px] mb-10 flex flex-col gap-6">
                         <Routes>
                             <Route path="/play/:tokenId" element={
-                                <GameContainer
-                                    address={address}
-                                    refreshTrigger={refreshTrigger}
-                                    setRefreshTrigger={setRefreshTrigger}
-                                    executeTransaction={executeTransaction}
-                                    isLoading={isLoading}
-                                />
+                                <GameContainer />
                             } />
                             <Route path="*" element={
                                 <div className="bg-surface rounded-3xl p-4 md:p-12 border border-border text-center h-full flex items-center justify-center min-h-[600px]">
-                                    <div>
-                                        <Sprout size={64} className="text-primary mx-auto mb-4 opacity-50" />
+                                    <div className="items-center flex flex-col">
+                                        <SporeLogo size={60} />
                                         <p className="text-textSecondary text-lg">Select a mushroom from your colony to start playing</p>
                                     </div>
                                 </div>
@@ -116,7 +124,7 @@ const GameDashboard = ({ address, setAddress, refreshTrigger, setRefreshTrigger,
                         navigate(`/play/${newMushroomId}`);
                         window.scrollTo(0, 0);
                     }
-                    setRefreshTrigger(prev => prev + 1);
+                    triggerRefresh()
                 }}
                 childId={newMushroomId}
                 childTraits={newMushroomTraits}

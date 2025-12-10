@@ -31,12 +31,14 @@ export function parseSpinResult(
     txResponse: TransactionResponse
 ): SpinResult | null {
     try {
+        console.log(txResponse);
         // Find the wasm event with spin data
         const wasmEvent = txResponse.events.find(
             (event) =>
                 event.type === "wasm" &&
                 event.attributes.some(
-                    (attr) => attr.key === "action" && attr.value === "spin"
+                    (attr) =>
+                        attr.key === "action" && attr.value === "resolve_spin"
                 )
         );
 
@@ -54,8 +56,8 @@ export function parseSpinResult(
         const tokenId = getAttr("token_id") || "";
         const traitTarget = (getAttr("trait_target")?.toLowerCase() ||
             "cap") as "cap" | "stem" | "spores";
-        const oldValue = parseInt(getAttr("old_volatile") || "0");
-        const newValue = parseInt(getAttr("new_volatile") || "0");
+        const oldValue = parseInt(getAttr("old_value") || "0");
+        const newValue = parseInt(getAttr("new_value") || "0");
 
         return {
             success,

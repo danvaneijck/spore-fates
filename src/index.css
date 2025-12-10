@@ -18,3 +18,28 @@
     animation: scale-in 0.3s ease-out;
   }
 }
+
+@layer utilities {
+  /* dark-scrollbar: for WebKit + Firefox + Edge */
+  .dark-scrollbar {
+    /* Firefox */
+    scrollbar-width: thin;
+    scrollbar-color: #82848E #020202;   /* thumb   track */
+
+    /* WebKit (Chrome / Safari / Edge Chromium) */
+  }
+  .dark-scrollbar::-webkit-scrollbar {
+    width: 8px;
+  }
+  .dark-scrollbar::-webkit-scrollbar-track {
+    background: #020202;               /* gray-800 */
+  }
+  .dark-scrollbar::-webkit-scrollbar-thumb {
+    background: #020202;               /* gray-600 */
+    border-radius: 6px;
+    border: 2px solid #020202;         /* creates a little gap */
+  }
+  .dark-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #020202;               /* gray-500 on hover */
+  }
+}

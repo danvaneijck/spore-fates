@@ -1,6 +1,6 @@
 import React from 'react';
-import { Award, Loader2, Lock, Unlock, ArrowUpCircle, AlertTriangle, Check, Crown } from 'lucide-react';
-import { TraitExtension } from '../../services/shroomService'; // Adjust import path as needed
+import { Award, Loader2, Lock, Unlock, ArrowUpCircle, AlertTriangle, Check, Crown, Zap } from 'lucide-react';
+import { TraitExtension } from '../../services/shroomService';
 
 interface Props {
     traits: TraitExtension;

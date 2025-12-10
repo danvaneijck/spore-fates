@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Coins, X, Sparkles } from 'lucide-react';
-import { NETWORK_CONFIG } from '../config';
+import { NETWORK_CONFIG } from '../../config';
 
 interface Props {
     isOpen: boolean;

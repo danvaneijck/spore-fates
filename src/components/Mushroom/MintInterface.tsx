@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Sparkles, Loader2, Coins, TrendingUp } from 'lucide-react';
-import { NETWORK_CONFIG } from '../config';
+import { NETWORK_CONFIG } from '../../config';
 import { MushroomGrowth } from './MushroomGrowth'; // Import the new component
-import { shroomService } from '../services/shroomService';
+import { shroomService } from '../../services/shroomService';
 
 interface MintInterfaceProps {
   onMint: (price: string) => Promise<void>;

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { shroomService, GameStats } from '../services/shroomService';
-import { NETWORK_CONFIG } from '../config';
+import { shroomService, GameStats } from '../../services/shroomService';
+import { NETWORK_CONFIG } from '../../config';
 import { Activity, Flame, Sprout, Coins, Dna } from 'lucide-react';
 
 interface Props {

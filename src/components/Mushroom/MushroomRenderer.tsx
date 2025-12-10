@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { TraitExtension } from '../services/shroomService';
+import { TraitExtension } from '../../services/shroomService';
 
 interface MushroomRendererProps {
   traits: TraitExtension;

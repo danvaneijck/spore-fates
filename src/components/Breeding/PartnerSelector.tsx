@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { shroomService, TraitExtension } from '../services/shroomService';
-import { MushroomRenderer } from './MushroomRenderer';
+import { shroomService, TraitExtension } from '../../services/shroomService';
+import { MushroomRenderer } from '../Mushroom/MushroomRenderer';
 import { Loader2 } from 'lucide-react';
 
 interface Props {

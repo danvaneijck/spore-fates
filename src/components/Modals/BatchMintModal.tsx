@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Sparkles, Loader2, Coins, Plus, Minus } from 'lucide-react';
-import { NETWORK_CONFIG } from '../config';
-import { shroomService } from '../services/shroomService';
+import { NETWORK_CONFIG } from '../../config';
+import { shroomService } from '../../services/shroomService';
 
 interface Props {
     isOpen: boolean;

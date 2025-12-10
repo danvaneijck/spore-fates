@@ -1,29 +1,28 @@
+// src/components/GameDashboard.tsx
+
 import { Sprout } from "lucide-react";
-import { MintInterface } from "./MintInterface";
+import { MintInterface } from "./Mushroom/MintInterface";
 import { Route, Routes, useNavigate, useParams } from "react-router-dom";
 import GameContainer from "./GameContainer";
-import { MushroomGallery } from "./MushroomGallery";
-import { shroomService, TraitExtension } from "../services/shroomService";
+import { MushroomGallery } from "./Mushroom/MushroomGallery";
+import { shroomService, TraitExtension, EcosystemMetrics } from "../services/shroomService"; // Added EcosystemMetrics
 import { findAttribute } from "../utils/transactionParser";
-import { useState } from "react";
-import { NewMushroomReveal } from "./NewMushroomReveal";
-import { GlobalStatsBanner } from "./GlobalStatsBanner";
-import { PlayerStatsCard } from "./PlayerStatsCard";
+import { useState, useEffect } from "react"; // Added useEffect
+import { NewMushroomReveal } from "./Overlays/NewMushroomReveal";
+import { GlobalStatsBanner } from "./Banners/GlobalStatsBanner";
+import { PlayerStatsCard } from "./Info/PlayerStatsCard";
+import { EcosystemWeather } from "./Info/EcosystemWeather"; // Import the widget
 
 const GalleryWrapper = ({ address, refreshTrigger }: { address: string, refreshTrigger: number }) => {
-    // Extract tokenId from the URL (e.g., /play/123)
     const { tokenId } = useParams();
-
     return (
         <MushroomGallery
             address={address}
-            // Pass the ID or empty string if on the root page
             currentTokenId={tokenId || ''}
             refreshTrigger={refreshTrigger}
         />
     );
 };
-
 
 const GameDashboard = ({ address, setAddress, refreshTrigger, setRefreshTrigger, executeTransaction, isLoading }) => {
     const navigate = useNavigate();
@@ -32,6 +31,17 @@ const GameDashboard = ({ address, setAddress, refreshTrigger, setRefreshTrigger,
     const [newMushroomId, setNewMushroomId] = useState<string | null>(null);
     const [newMushroomTraits, setNewMushroomTraits] = useState<TraitExtension | null>(null);
 
+    // Lifted State: Metrics now live here
+    const [metrics, setMetrics] = useState<EcosystemMetrics | null>(null);
+
+    // Fetch Metrics on Dashboard load & refresh
+    useEffect(() => {
+        const fetchMetrics = async () => {
+            const data = await shroomService.getEcosystemMetrics();
+            setMetrics(data);
+        };
+        fetchMetrics();
+    }, [refreshTrigger]);
 
     const handleMint = async (priceRaw: string) => {
         if (!address) return;
@@ -55,7 +65,6 @@ const GameDashboard = ({ address, setAddress, refreshTrigger, setRefreshTrigger,
 
     return (
         <>
-
             <GlobalStatsBanner refreshTrigger={refreshTrigger} />
 
             {address && (
@@ -65,11 +74,14 @@ const GameDashboard = ({ address, setAddress, refreshTrigger, setRefreshTrigger,
             )}
 
             {/* Main Content Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-8 items-start mt-4">
+            <div className="grid grid-cols-1 lg:grid-cols-[420px_1fr] gap-6 items-start mt-4">
                 {/* Left Column - Gallery */}
                 {address && (
-                    <div className="w-full lg:w-[320px]">
+                    <div className="w-full lg:w-[420px]">
+                        <EcosystemWeather metrics={metrics} />
+
                         <Routes>
+
                             <Route
                                 path="/play/:tokenId"
                                 element={<GalleryWrapper address={address} refreshTrigger={refreshTrigger} />}
@@ -84,7 +96,9 @@ const GameDashboard = ({ address, setAddress, refreshTrigger, setRefreshTrigger,
 
                 {/* Right Column - Game Interface */}
                 {address && (
-                    <div className="flex-1 min-h-[600px] mb-10">
+                    <div className="flex-1 min-h-[600px] mb-10 flex flex-col gap-6">
+
+
                         <Routes>
                             <Route path="/play/:tokenId" element={
                                 <GameContainer
@@ -93,6 +107,8 @@ const GameDashboard = ({ address, setAddress, refreshTrigger, setRefreshTrigger,
                                     setRefreshTrigger={setRefreshTrigger}
                                     executeTransaction={executeTransaction}
                                     isLoading={isLoading}
+                                // Pass metrics down if GameContainer needs them for logic (optional)
+                                // metrics={metrics} 
                                 />
                             } />
                             <Route path="*" element={

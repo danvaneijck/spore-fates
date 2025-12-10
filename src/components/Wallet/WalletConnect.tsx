@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Wallet, ChevronDown, LogOut } from 'lucide-react';
 import { WalletStrategy } from '@injectivelabs/wallet-strategy';
 import { Wallet as WalletType } from '@injectivelabs/wallet-base';

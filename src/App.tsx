@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { WalletConnect, walletStrategy } from './components/WalletConnect';
+import { WalletConnect, walletStrategy } from './components/Wallet/WalletConnect';
 import { ToastProvider } from './components/ToastProvider';
 import { Sprout, Github, Twitter, BookOpen, Home } from 'lucide-react';
 import { MsgBroadcaster } from "@injectivelabs/wallet-core";

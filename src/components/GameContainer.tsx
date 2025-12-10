@@ -1,18 +1,18 @@
+// src/components/GameContainer.tsx
+
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { DRAND_HASH, EcosystemMetrics, RewardInfo, shroomService, TraitExtension } from "../services/shroomService";
+import { DRAND_HASH, RewardInfo, shroomService, TraitExtension } from "../services/shroomService";
 import { findAttribute, parseSpinResult, SpinResult } from "../utils/transactionParser";
 import { Dna, FlaskConical, Sprout } from "lucide-react";
-import { EcosystemWeather } from "./EcosystemWeather";
-import { SpinInterface } from "./SpinInterface";
-import { SpinWheel } from "./SpinWheel";
-import { BreedingInterface } from "./BreedingInterface";
+import { SpinInterface } from "./Mutations/SpinInterface";
+import { SpinWheel } from "./Mutations/SpinWheel";
+import { BreedingInterface } from "./Breeding/BreedingInterface";
 
 
 const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTransaction, isLoading }) => {
 
     const [activeTab, setActiveTab] = useState<'mutate' | 'breed'>('mutate');
-
     const { tokenId } = useParams();
 
     const [spinStage, setSpinStage] = useState<'idle' | 'requesting' | 'waiting_drand' | 'resolving' | 'ready_to_reveal'>('idle');
@@ -24,7 +24,6 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
         genome: []
     });
 
-    const [metrics, setMetrics] = useState<EcosystemMetrics | null>(null);
     const [globalShares, setGlobalShares] = useState<string>('0');
 
     const [rewardInfo, setRewardInfo] = useState<RewardInfo>({ accumulated: '0', multiplier: '1', payout: '0' });
@@ -36,12 +35,8 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
 
     const handleResolve = useCallback(async (round: number) => {
         setSpinStage('resolving');
-
-        // Construct the Batch TX
         const msgs = await shroomService.makeResolveBatchMsg(address, tokenId, round);
-
-        // Execute Tx 2 (User signs again)
-        const result = await executeTransaction(msgs, 'resolve_spin'); // Note: executeTransaction needs to handle array of msgs
+        const result = await executeTransaction(msgs, 'resolve_spin');
 
         if (result) {
             const parsed = parseSpinResult(result);
@@ -59,20 +54,15 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
     };
 
     const waitForDrand = useCallback(async (round: number) => {
-        // Clear any existing intervals if necessary (optional safeguard)
-
         const checkDrand = setInterval(async () => {
             try {
                 const response = await fetch(`https://api.drand.sh/${DRAND_HASH}/public/${round}`);
                 if (response.ok) {
                     clearInterval(checkDrand);
-                    // When round appears, change UI to Reveal Button
                     setSpinStage('ready_to_reveal');
                 }
             } catch (e) { /* ignore */ }
         }, 1000);
-
-        // Cleanup interval on unmount
         return () => clearInterval(checkDrand);
     }, []);
 
@@ -88,11 +78,7 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
                 else setPendingTraitUpdate(traitData);
             }
 
-            // 2. Fetch Global Weather
-            const weatherData = await shroomService.getEcosystemMetrics();
-            setMetrics(weatherData);
-
-            // 3. Fetch Rewards
+            // 2. Fetch Rewards
             const rewards = await shroomService.getPendingRewards(tokenId);
             setRewardInfo(rewards);
 
@@ -110,32 +96,25 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
         if (!tokenId) return;
 
         const checkPendingState = async () => {
-            // 1. Ask Contract: Is this mushroom stuck?
             const status = await shroomService.getPendingSpinStatus(tokenId);
 
             if (status.is_pending) {
                 console.log(`Found pending spin for round ${status.target_round}`);
                 setPendingRound(status.target_round);
 
-                // 2. Check if Drand has generated this round yet
                 try {
                     const response = await fetch(`https://api.drand.sh/${DRAND_HASH}/public/${status.target_round}`);
-
                     if (response.ok) {
-                        // Round exists -> User can Reveal immediately
                         setSpinStage('ready_to_reveal');
                     } else {
-                        // Round not ready -> Start Waiting
                         setSpinStage('waiting_drand');
                         waitForDrand(status.target_round);
                     }
                 } catch (e) {
-                    // Network error or 404 -> Start Waiting
                     setSpinStage('waiting_drand');
                     waitForDrand(status.target_round);
                 }
             } else {
-                // No pending spin -> Standard UI
                 setSpinStage('idle');
             }
         };
@@ -144,22 +123,15 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
     }, [tokenId, waitForDrand]);
 
     const onSpin = async (target) => {
-        // STEP 1: REQUEST
         setSpinStage('requesting');
-
         const cost = shroomService.getSpinCost(traits.substrate);
         const msg = shroomService.makeRequestSpinMsg(address, tokenId, target, cost);
-
-        // Execute Tx 1
         const result = await executeTransaction(msg, 'request_spin');
 
         if (result) {
-            // Find the target round from the logs
             const round = findAttribute(result, "wasm", 'target_round');
             setPendingRound(parseInt(round));
             setSpinStage('waiting_drand');
-
-            // Start Polling Drand API
             waitForDrand(parseInt(round));
         } else {
             setSpinStage('idle');
@@ -181,14 +153,10 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
     const handleWheelComplete = () => {
         setShowWheel(false);
         setSpinResult(null);
-
-        // Apply pending trait update if we have one
         if (pendingTraitUpdate) {
             setTraits(pendingTraitUpdate);
             setPendingTraitUpdate(null);
         }
-
-        // Trigger a refresh to ensure we have the latest data
         setRefreshTrigger(prev => prev + 1);
     };
 
@@ -207,8 +175,7 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
     }
 
     return (
-        <div className=" m-auto bg-surface rounded-3xl p-6 border border-border h-full">
-            <EcosystemWeather metrics={metrics} />
+        <div className="m-auto w-full bg-surface rounded-3xl p-6 border border-border h-full">
 
             {/* TAB NAVIGATION */}
             <div className="flex p-1 bg-background rounded-xl border border-border mb-6">
@@ -231,15 +198,14 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
             {/* TAB CONTENT */}
             {activeTab === 'mutate' ? (
                 <>
-
                     <SpinInterface
                         tokenId={tokenId}
                         traits={traits}
                         onSpin={onSpin}
                         onHarvest={onHarvest}
                         onAscend={onAscend}
-                        onReveal={manualResolve} // PASS HANDLER
-                        spinStage={spinStage}    // PASS STATE
+                        onReveal={manualResolve}
+                        spinStage={spinStage}
                         rewardInfo={rewardInfo}
                         isLoading={isLoading}
                         globalTotalShares={parseFloat(globalShares)}

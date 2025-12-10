@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { MushroomRenderer } from './MushroomRenderer';
+import { MushroomRenderer } from '../Mushroom/MushroomRenderer';
 import { Sparkles, TrendingUp, Award, Loader2, Lock, AlertTriangle, PieChart } from 'lucide-react';
-import { NETWORK_CONFIG } from '../config';
-import { TraitExtension } from '../services/shroomService';
-import { GeneticsDisplay } from './GeneticsDisplay';
-import { HarvestOverlay } from './HarvestOverlay';
+import { NETWORK_CONFIG } from '../../config';
+import { TraitExtension } from '../../services/shroomService';
+import { GeneticsDisplay } from '../Mushroom/GeneticsDisplay';
+import { HarvestOverlay } from '../Overlays/HarvestOverlay';
 
 interface SpinInterfaceProps {
   tokenId: string;
@@ -90,10 +90,10 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
     const amountToCapture = payoutVal;
 
     // Call the parent function
-    await onHarvest();
+    const result = await onHarvest();
 
     // If successful (no error thrown), show animation
-    if (amountToCapture > 0) {
+    if (result && amountToCapture > 0) {
       setHarvestedAmount(amountToCapture.toString());
       setShowHarvest(true);
     }
@@ -118,16 +118,14 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
     <>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Left Column - Mushroom Visualization */}
-        <div className="bg-surface rounded-3xl p-8 border border-border">
-          <div className="flex items-center justify-between mb-6">
+        <div className="bg-surface rounded-3xl p-6 border border-border">
+          <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-2xl font-bold text-text">#{tokenId}</h3>
               <p className="text-sm text-textSecondary mt-1">
                 Substrate Level: <span className="text-primary font-semibold">{getSubstrateLevel()}</span>
               </p>
-              {/* <div className="mt-2">
-                <RankBadge shares={myShares} />
-              </div> */}
+
             </div>
             {/* DOMINANCE CARD */}
             <div className="bg-black/20 rounded-xl p-3 border border-border/50 text-right min-w-[120px]">
@@ -139,13 +137,11 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
               </div>
 
             </div>
-            {/* <div className="text-right">
-              <div className="text-3xl font-bold text-text">{totalPower > 0 ? '+' : ''}{totalPower}</div>
-              <div className="text-xs text-textSecondary">Total Power</div>
-            </div> */}
           </div>
 
-          <MushroomRenderer traits={traits} />
+          <div className='max-w-[300px] m-auto'>
+            <MushroomRenderer traits={traits} />
+          </div>
 
           {/* Trait Stats Breakdown */}
           <div className="grid grid-cols-3 gap-4 mt-6">
@@ -201,8 +197,8 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
         {/* Right Column - Actions */}
         <div className="space-y-6">
           {/* Spin Actions */}
-          <div className="bg-surface rounded-3xl p-8 border border-border">
-            <div className="flex items-center gap-2 mb-6">
+          <div className="bg-surface rounded-3xl p-6 border border-border">
+            <div className="flex items-center gap-2 mb-4">
               <Sparkles size={24} className="text-primary" />
               <div>
                 <h3 className="text-xl font-bold text-text">Mutate Traits</h3>
@@ -294,15 +290,38 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
 
               {/* STATE: READY (Reveal Button) */}
               {spinStage === 'ready_to_reveal' && (
-                <button
-                  onClick={onReveal} // CALL MANUAL RESOLVE
-                  className="w-full py-6 bg-gradient-to-r from-purple-600 to-pink-600 hover:scale-[1.02] text-white rounded-xl font-bold text-xl shadow-lg shadow-purple-500/20 transition-all animate-bounce-short"
-                >
-                  <div className="flex items-center justify-center gap-3">
-                    <Sparkles size={24} className="animate-pulse" />
-                    REVEAL FATE
-                  </div>
-                </button>
+                <div className="animate-fade-in-up mt-4">
+                  <button
+                    onClick={onReveal}
+                    className="group relative w-full overflow-hidden rounded-2xl bg-gradient-to-r from-violet-600 via-fuchsia-600 to-purple-600 p-0.5 shadow-[0_0_25px_rgba(192,38,211,0.4)] transition-all duration-300 hover:shadow-[0_0_50px_rgba(192,38,211,0.7)] hover:scale-[1.01] active:scale-[0.99]"
+                  >
+                    {/* Subtle shine sweep effect on hover */}
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-in-out" />
+
+                    {/* Inner Container */}
+                    <div className="relative flex flex-col items-center justify-center rounded-[14px] bg-black/20 py-6 backdrop-blur-sm transition-colors group-hover:bg-transparent border border-white/10">
+
+                      {/* Main Content */}
+                      <div className="flex items-center gap-3 mb-1">
+                        <div className="relative">
+                          <Sparkles className="text-white animate-pulse" size={24} />
+                          {/* Duplicate icon for glow blur */}
+                          <div className="absolute inset-0 text-fuchsia-300 blur-sm animate-pulse opacity-50">
+                            <Sparkles size={24} />
+                          </div>
+                        </div>
+                        <span className="text-2xl font-black text-white tracking-widest drop-shadow-md">
+                          REVEAL FATE
+                        </span>
+                      </div>
+
+                      {/* Subtext */}
+                      <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-fuchsia-100/70 group-hover:text-white transition-colors">
+                        Genetic Sequence Ready
+                      </span>
+                    </div>
+                  </button>
+                </div>
               )}
 
               {/* STATE: RESOLVING (Loading 2) */}
@@ -316,7 +335,7 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
             </div>
           </div>
           {/* Rewards */}
-          <div className="bg-surface rounded-3xl p-8 border border-border">
+          <div className="bg-surface rounded-3xl p-6 border border-border">
             <div className="flex items-center gap-2 mb">
               <TrendingUp size={24} className="text-success" />
               <h3 className="text-xl font-bold text-text">Rewards</h3>

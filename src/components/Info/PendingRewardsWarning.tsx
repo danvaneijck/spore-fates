@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { shroomService } from '../services/shroomService';
+import { shroomService } from '../../services/shroomService';
 import { AlertTriangle, Loader2 } from 'lucide-react';
-import { NETWORK_CONFIG } from '../config';
+import { NETWORK_CONFIG } from '../../config';
 
 interface Props {
     parentAId: string;

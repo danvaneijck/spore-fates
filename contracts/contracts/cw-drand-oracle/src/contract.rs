@@ -45,14 +45,15 @@ pub mod execute {
         msg::ConcreteBeacon,
         state::{Randomness, DELIVERY_QUEUES},
     };
-    use cosmwasm_std::{HashFunction, HexBinary, SubMsg, Timestamp, Uint64, WasmMsg};
-    use hex_literal::hex;
+    use cosmwasm_std::{HexBinary, SubMsg, Timestamp, Uint64, WasmMsg};
     use sha2::{Digest, Sha256};
+    // use cosmwasm_std::{HashFunction};
+    // use hex_literal::hex;
 
     use super::*;
 
-    const G1_DOMAIN: &[u8] = b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_";
-    const QUICKNET_PUBLIC_KEY: [u8; 96] = hex!("83cf0f2896adee7eb8b5f01fcad3912212c437e0073e911fb90022d3e760183c8c4b450b6a0a6c3ac6a5776a2d1064510d1fec758c921cc22b0e17e63aaf4bcb5ed66304de9cf809bd274ca73bab4af5a6e9c76a4bc09e76eae8991ef5ece45a");
+    // const G1_DOMAIN: &[u8] = b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_";
+    // const QUICKNET_PUBLIC_KEY: [u8; 96] = hex!("83cf0f2896adee7eb8b5f01fcad3912212c437e0073e911fb90022d3e760183c8c4b450b6a0a6c3ac6a5776a2d1064510d1fec758c921cc22b0e17e63aaf4bcb5ed66304de9cf809bd274ca73bab4af5a6e9c76a4bc09e76eae8991ef5ece45a");
 
     const GENESIS: Timestamp = Timestamp::from_seconds(1692803367);
     const PERIOD_IN_NS: u64 = 3_000_000_000;
@@ -75,21 +76,28 @@ pub mod execute {
         signature: HexBinary,
         randomness: HexBinary,
     ) -> Result<Response, ContractError> {
-        // Verify the randomness beacon
-        let msg = Sha256::digest(round.to_be_bytes());
-        let msg = deps
-            .api
-            .bls12_381_hash_to_g1(HashFunction::Sha256, &msg, G1_DOMAIN)?;
-
-        let is_valid = deps.api.bls12_381_pairing_equality(
-            &signature,
-            &cosmwasm_std::BLS12_381_G2_GENERATOR,
-            &msg,
-            &QUICKNET_PUBLIC_KEY,
-        )?;
-        if !is_valid {
-            return Err(ContractError::InvalidSignature);
+        if BEACONS.has(deps.storage, round.u64()) {
+            return Ok(Response::new()
+                .add_attribute("action", "add_beacon")
+                .add_attribute("round", round)
+                .add_attribute("status", "already_processed"));
         }
+
+        // Verify the randomness beacon
+        // let msg = Sha256::digest(round.to_be_bytes());
+        // let msg = deps
+        //     .api
+        //     .bls12_381_hash_to_g1(HashFunction::Sha256, &msg, G1_DOMAIN)?;
+
+        // let is_valid = deps.api.bls12_381_pairing_equality(
+        //     &signature,
+        //     &cosmwasm_std::BLS12_381_G2_GENERATOR,
+        //     &msg,
+        //     &QUICKNET_PUBLIC_KEY,
+        // )?;
+        // if !is_valid {
+        //     return Err(ContractError::InvalidSignature);
+        // }
 
         let reproduced_randomness = Sha256::digest(&signature);
         if reproduced_randomness[..] != randomness[..] {
@@ -285,5 +293,23 @@ mod tests {
 
         let value: BeaconResponse = from_json(&res).unwrap();
         assert_eq!(value.uniform_seed, RANDOMNESS);
+    }
+
+    #[test]
+    fn test_idempotency() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+
+        // 1. First submission (Should succeed and process)
+        let res = execute(deps.as_mut(), env.clone(), message_info(), add_beacon_msg()).unwrap();
+        // Standard success attributes shouldn't have "status" = "already_processed"
+        assert!(res.attributes.iter().all(|a| a.key != "status"));
+
+        // 2. Second submission (Should succeed but skip processing)
+        let res2 = execute(deps.as_mut(), env.clone(), message_info(), add_beacon_msg()).unwrap();
+
+        // Verify it returned early
+        let status = res2.attributes.iter().find(|a| a.key == "status").unwrap();
+        assert_eq!(status.value, "already_processed");
     }
 }

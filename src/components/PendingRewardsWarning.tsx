@@ -67,18 +67,18 @@ export const PendingRewardsWarning: React.FC<Props> = ({ parentAId, parentBId })
                     <div className="grid grid-cols-2 gap-2 text-xs">
                         <div className="bg-black/20 p-2 rounded flex justify-between">
                             <span className="text-textSecondary">Parent #{parentAId}:</span>
-                            <span className="font-mono text-red-300">{amountA.toFixed(2)} {NETWORK_CONFIG.paymentSymbol}</span>
+                            <span className="font-mono text-red-300">{amountA.toFixed(3)} {NETWORK_CONFIG.paymentSymbol}</span>
                         </div>
                         {parentBId && (
                             <div className="bg-black/20 p-2 rounded flex justify-between">
                                 <span className="text-textSecondary">Parent #{parentBId}:</span>
-                                <span className="font-mono text-red-300">{amountB.toFixed(2)} {NETWORK_CONFIG.paymentSymbol}</span>
+                                <span className="font-mono text-red-300">{amountB.toFixed(3)} {NETWORK_CONFIG.paymentSymbol}</span>
                             </div>
                         )}
                     </div>
 
                     <div className="mt-2 text-right">
-                        <span className="text-xs font-bold text-red-500">Total at Risk: {total.toFixed(2)} {NETWORK_CONFIG.paymentSymbol}</span>
+                        <span className="text-xs font-bold text-red-500">Total at Risk: {total.toFixed(3)} {NETWORK_CONFIG.paymentSymbol}</span>
                     </div>
                 </div>
             </div>

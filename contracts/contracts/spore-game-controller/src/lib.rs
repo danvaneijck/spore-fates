@@ -3,7 +3,7 @@ use std::str::FromStr;
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{
     entry_point, to_json_binary, Addr, BankMsg, Binary, Coin, Decimal, Deps, DepsMut, Empty, Env,
-    MessageInfo, Response, StdResult, Uint128, WasmMsg,
+    MessageInfo, Response, StdResult, Uint128, Uint64, WasmMsg,
 };
 use cw2::set_contract_version;
 use cw721::msg::NftExtensionMsg;
@@ -17,10 +17,13 @@ pub mod state;
 
 use crate::error::ContractError;
 use crate::msg::{
-    EcosystemMetricsResponse, ExecuteMsg, GameStatsResponse, InstantiateMsg, MintPriceResponse, OracleQueryMsg, PendingRewardsResponse, PendingSpinResponse, PlayerProfileResponse, QueryMsg, RandomnessResponse, TraitTarget
+    BeaconResponse, EcosystemMetricsResponse, ExecuteMsg, GameStatsResponse, InstantiateMsg,
+    MintPriceResponse, OracleQueryMsg, PendingRewardsResponse, PendingSpinResponse,
+    PlayerProfileResponse, QueryMsg, TraitTarget,
 };
 use crate::state::{
-    BIOMASS, CONFIG, GAME_STATS, GLOBAL_STATE, GameConfig, GameStats, GlobalState, MINT_COUNTER, PENDING_SPINS, PendingSpin, TOKEN_INFO, TokenInfo
+    GameConfig, GameStats, GlobalState, PendingSpin, TokenInfo, BIOMASS, CONFIG, GAME_STATS,
+    GLOBAL_STATE, MINT_COUNTER, PENDING_SPINS, TOKEN_INFO,
 };
 
 const CONTRACT_NAME: &str = "crates.io:spore-game-controller";
@@ -141,9 +144,7 @@ pub fn execute(
             token_id,
             trait_target,
         } => execute_spin(deps, env, info, token_id, trait_target),
-        ExecuteMsg::ResolveSpin {
-            token_id,
-        } => execute_resolve_spin(deps, env, info, token_id),
+        ExecuteMsg::ResolveSpin { token_id } => execute_resolve_spin(deps, env, info, token_id),
         ExecuteMsg::Harvest { token_id } => execute_harvest(deps, env, info, token_id),
         ExecuteMsg::Ascend { token_id } => execute_ascend(deps, env, info, token_id),
         ExecuteMsg::Mint {} => execute_mint(deps, env, info),
@@ -264,8 +265,6 @@ fn execute_mint(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, 
             .checked_add(reward_per_share)?;
     }
 
-    global_state.total_shares = global_state.total_shares.checked_add(initial_shares)?;
-
     // Update Biomass
     let mut biomass = BIOMASS.load(deps.storage)?;
     add_stats_to_globals(&mut biomass, &mut global_state, &new_traits);
@@ -349,11 +348,14 @@ fn execute_spin(
             token_id: token_id.clone(),
         },
     )?;
-    
+
     // Check sender is owner (Standard verification)
     let owner_res: cw721::msg::OwnerOfResponse = deps.querier.query_wasm_smart(
         config.cw721_addr.to_string(),
-        &cw721::msg::Cw721QueryMsg::<NftExtensionMsg, Empty, Empty>::OwnerOf { token_id: token_id.clone(), include_expired: None }
+        &cw721::msg::Cw721QueryMsg::<NftExtensionMsg, Empty, Empty>::OwnerOf {
+            token_id: token_id.clone(),
+            include_expired: None,
+        },
     )?;
     if owner_res.owner != info.sender.to_string() {
         return Err(ContractError::Unauthorized {});
@@ -363,12 +365,21 @@ fn execute_spin(
 
     // 2. Calculate Cost
     let substrate_multiplier: u128 = match traits.substrate {
-        0 => 1, 1 => 2, 2 => 3, 3 => 5, _ => 10,
+        0 => 1,
+        1 => 2,
+        2 => 3,
+        3 => 5,
+        _ => 10,
     };
-    let required_payment = config.spin_cost.checked_mul(Uint128::from(substrate_multiplier))?;
+    let required_payment = config
+        .spin_cost
+        .checked_mul(Uint128::from(substrate_multiplier))?;
 
     // 3. Take Payment
-    let payment = info.funds.iter().find(|c| c.denom == config.payment_denom)
+    let payment = info
+        .funds
+        .iter()
+        .find(|c| c.denom == config.payment_denom)
         .ok_or(ContractError::InvalidPayment {})?;
     if payment.amount < required_payment {
         return Err(ContractError::InsufficientFunds {});
@@ -391,7 +402,7 @@ fn execute_spin(
 
     // We do NOT distribute rewards yet. We hold the funds in the contract until resolution.
     // If we distributed now, and the spin failed/timeout, we couldn't refund easily.
-    
+
     Ok(Response::new()
         .add_attribute("action", "request_spin")
         .add_attribute("token_id", token_id)
@@ -405,19 +416,22 @@ fn execute_resolve_spin(
     token_id: String,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-    let pending = PENDING_SPINS.load(deps.storage, &token_id)
-        .map_err(|_| ContractError::NoPendingSpin {  })?;
+    let pending = PENDING_SPINS
+        .load(deps.storage, &token_id)
+        .map_err(|_| ContractError::NoPendingSpin {})?;
 
     // 1. Fetch Randomness from Oracle
-    let oracle_res: RandomnessResponse = deps.querier.query_wasm_smart(
+    let oracle_res: BeaconResponse = deps.querier.query_wasm_smart(
         config.oracle_addr.to_string(),
-        &OracleQueryMsg::GetRandomness { round: pending.target_round }
-    )?; // Will fail if round not yet available in Oracle
+        &OracleQueryMsg::Beacon {
+            round: Uint64::from(pending.target_round),
+        },
+    )?;
 
     // 2. Generate Deterministic Result
     // We mix randomness + token_id to ensure unique outcomes if multiple people spin on same round
     let mut hasher = Sha256::new();
-    hasher.update(&oracle_res.randomness);
+    hasher.update(oracle_res.uniform_seed); // Use uniform_seed from response
     hasher.update(token_id.as_bytes());
     let result_hash = hasher.finalize();
     let random_value = result_hash[0]; // 0-255
@@ -425,7 +439,7 @@ fn execute_resolve_spin(
     // 3. Load Data needed for Game Logic
     let mut global_state = GLOBAL_STATE.load(deps.storage)?;
     let mut token_info = TOKEN_INFO.may_load(deps.storage, &token_id)?.unwrap(); // Should exist
-    
+
     let nft_info: cw721::msg::NftInfoResponse<NftExtensionMsg> = deps.querier.query_wasm_smart(
         config.cw721_addr.to_string(),
         &cw721::msg::Cw721QueryMsg::<NftExtensionMsg, Empty, Empty>::NftInfo {
@@ -435,10 +449,11 @@ fn execute_resolve_spin(
     let mut traits = parse_traits(nft_info.extension);
 
     // 4. --- GAME LOGIC (Copied & Adapted from previous execute_spin) ---
-    
+
     // A. Update Pending Rewards (Accumulate)
     if !token_info.current_shares.is_zero() && !global_state.total_shares.is_zero() {
-        let accrued = token_info.current_shares
+        let accrued = token_info
+            .current_shares
             .checked_mul(global_state.global_reward_index)?
             .checked_sub(token_info.reward_debt)?;
         token_info.pending_rewards += accrued;
@@ -482,15 +497,26 @@ fn execute_resolve_spin(
 
     // C. Update Shares & Globals
     let new_shares = calculate_shares(&traits);
-    global_state.total_shares = global_state.total_shares
+    global_state.total_shares = global_state
+        .total_shares
         .checked_sub(token_info.current_shares)?
         .checked_add(new_shares)?;
 
     // D. Distribute the Payment NOW
-    // We finally use the money that was locked in step 1
+    let old_index = global_state.global_reward_index;
+
     if !global_state.total_shares.is_zero() {
         let reward_per_share = pending.bid_amount.checked_div(global_state.total_shares)?;
         global_state.global_reward_index += reward_per_share;
+    }
+
+    // Calculate how much the index went up due to this spin
+    let index_increase = global_state.global_reward_index.checked_sub(old_index)?;
+
+    // If the user has shares (post-spin), give them their slice of their own bid
+    if !new_shares.is_zero() {
+        let self_reward = new_shares.checked_mul(index_increase)?;
+        token_info.pending_rewards = token_info.pending_rewards.checked_add(self_reward)?;
     }
 
     // E. Update User's Debt
@@ -500,7 +526,7 @@ fn execute_resolve_spin(
     // 5. Save Everything
     GLOBAL_STATE.save(deps.storage, &global_state)?;
     TOKEN_INFO.save(deps.storage, &token_id, &token_info)?;
-    
+
     // Increment Stats
     let mut stats = GAME_STATS.load(deps.storage)?;
     stats.total_spins += 1;
@@ -519,12 +545,20 @@ fn execute_resolve_spin(
         funds: vec![],
     };
 
+    let target_str = match pending.target {
+        TraitTarget::Cap => "cap",
+        TraitTarget::Stem => "stem",
+        TraitTarget::Spores => "spores",
+    };
+
     Ok(Response::new()
         .add_message(update_msg)
         .add_attribute("action", "resolve_spin")
         .add_attribute("token_id", token_id)
         .add_attribute("random_value", random_value.to_string())
         .add_attribute("success", is_success.to_string())
+        .add_attribute("trait_target", target_str)
+        .add_attribute("old_value", current_val.to_string())
         .add_attribute("new_value", new_val.to_string()))
 }
 
@@ -586,28 +620,24 @@ fn execute_harvest(
     // Payout = Pending * Multiplier
     let payout_amount = token_info.pending_rewards.mul_floor(multiplier);
 
-    // --- NEW: RECYCLING LOGIC ---
     // Calculate what was forfeited due to bad weather/shadow zone
-    let forfeited_amount = token_info.pending_rewards.checked_sub(payout_amount)?;
+    let forfeited_amount = if payout_amount < token_info.pending_rewards {
+        token_info.pending_rewards - payout_amount
+    } else {
+        Uint128::zero()
+    };
 
-    // If money was lost, recycle it back to the global pool immediately
+    // If money was lost (Penalty), recycle it back to the global pool
     if !forfeited_amount.is_zero() && !global_state.total_shares.is_zero() {
-        // We add this amount BACK into the global index
-        // This increases the 'reward_per_share' for everyone else instantly
         let recycle_per_share = forfeited_amount.checked_div(global_state.total_shares)?;
         global_state.global_reward_index = global_state
             .global_reward_index
             .checked_add(recycle_per_share)?;
     }
 
+    // Shadow Zone check (if multiplier was 0)
     if payout_amount.is_zero() {
-        // If they are in the Shadow Zone (Multiplier 0), they technically harvest nothing,
-        // but we still reset their pending rewards to 0 because they "spent" the harvest action.
-        // This prevents people from hoarding pending rewards forever until weather improves.
-        // (Game Design Choice: remove this line if you want them to keep pending rewards)
         token_info.pending_rewards = Uint128::zero();
-
-        // We still proceed to reset stats below...
     }
 
     // 5. Send Rewards (if any)
@@ -1039,7 +1069,9 @@ fn remove_stats_from_globals(
 #[entry_point]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::GetPendingSpin { token_id } => to_json_binary(&query_pending_spin(deps, token_id)?),
+        QueryMsg::GetPendingSpin { token_id } => {
+            to_json_binary(&query_pending_spin(deps, token_id)?)
+        }
         QueryMsg::Config {} => to_json_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::GlobalState {} => to_json_binary(&GLOBAL_STATE.load(deps.storage)?),
         QueryMsg::TokenInfo { token_id } => {
@@ -1061,8 +1093,14 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
 fn query_pending_spin(deps: Deps, token_id: String) -> StdResult<PendingSpinResponse> {
     match PENDING_SPINS.may_load(deps.storage, &token_id)? {
-        Some(pending) => Ok(PendingSpinResponse { is_pending: true, target_round: pending.target_round }),
-        None => Ok(PendingSpinResponse { is_pending: false, target_round: 0 }),
+        Some(pending) => Ok(PendingSpinResponse {
+            is_pending: true,
+            target_round: pending.target_round,
+        }),
+        None => Ok(PendingSpinResponse {
+            is_pending: false,
+            target_round: 0,
+        }),
     }
 }
 
@@ -1328,7 +1366,7 @@ mod tests {
             mint_cost: Uint128::new(0),
             mint_cost_increment: Uint128::new(0),
             cw721_addr: cw721.to_string(),
-            oracle_addr: oracle.to_string(), 
+            oracle_addr: oracle.to_string(),
         };
         let info = message_info(creator, &[]);
         instantiate(deps, mock_env(), info, msg)
@@ -1848,7 +1886,7 @@ mod tests {
         let mut deps = mock_deps_custom();
         let creator = deps.api.addr_make("creator");
         let cw721 = deps.api.addr_make("cw721");
-        let oracle = deps.api.addr_make("oracle"); 
+        let oracle = deps.api.addr_make("oracle");
         let owner = deps.api.addr_make("owner");
 
         // 2. Setup with Oracle
@@ -1856,8 +1894,14 @@ mod tests {
 
         // 3. Define traits
         let traits = TraitExtension {
-            cap: 0, stem: 0, spores: 0, substrate: 0,
-            genes: vec![0; 8], base_cap: 0, base_stem: 0, base_spores: 0,
+            cap: 0,
+            stem: 0,
+            spores: 0,
+            substrate: 0,
+            genes: vec![0; 8],
+            base_cap: 0,
+            base_stem: 0,
+            base_spores: 0,
         };
 
         // 4. Register Mock NFT
@@ -1870,13 +1914,17 @@ mod tests {
             reward_debt: Uint128::zero(),
             pending_rewards: Uint128::zero(),
         };
-        TOKEN_INFO.save(deps.as_mut().storage, "1", &token_info).unwrap();
+        TOKEN_INFO
+            .save(deps.as_mut().storage, "1", &token_info)
+            .unwrap();
 
         // Update Global State to reflect this existing token
         // If we don't do this, reward calculations might divide by zero or underflow
         let mut global_state = GLOBAL_STATE.load(deps.as_ref().storage).unwrap();
-        global_state.total_shares = Uint128::new(100); 
-        GLOBAL_STATE.save(deps.as_mut().storage, &global_state).unwrap();
+        global_state.total_shares = Uint128::new(100);
+        GLOBAL_STATE
+            .save(deps.as_mut().storage, &global_state)
+            .unwrap();
         // -------------------------------------
 
         // ==========================================
@@ -1894,9 +1942,11 @@ mod tests {
         let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
 
         assert_eq!(res.attributes[0].value, "request_spin");
-        
+
         // Check pending spin exists
-        let query_msg = QueryMsg::GetPendingSpin { token_id: "1".to_string() };
+        let query_msg = QueryMsg::GetPendingSpin {
+            token_id: "1".to_string(),
+        };
         let res = query(deps.as_ref(), env.clone(), query_msg).unwrap();
         let pending: PendingSpinResponse = from_json(&res).unwrap();
         assert!(pending.is_pending);
@@ -1904,13 +1954,13 @@ mod tests {
         // ==========================================
         // PHASE 2: RESOLVE SPIN
         // ==========================================
-        
+
         // Re-setup mock querier for Phase 2 (Logic + Oracle)
         let cw721_str = cw721.to_string();
         let oracle_str = oracle.to_string();
         let owner_str = owner.to_string();
         let traits_clone = traits.clone();
-        
+
         // Need to capture the contract addr to verify the WasmMsg later
         let cw721_addr_verification = cw721_str.clone();
 
@@ -1918,41 +1968,62 @@ mod tests {
             CosmWasmQuery::Smart { contract_addr, msg } => {
                 if contract_addr == &cw721_str {
                     // MOCK NFT
-                    let parsed: cw721::msg::Cw721QueryMsg<NftExtensionMsg, Empty, Empty> = from_json(msg).unwrap();
+                    let parsed: cw721::msg::Cw721QueryMsg<NftExtensionMsg, Empty, Empty> =
+                        from_json(msg).unwrap();
                     match parsed {
                         cw721::msg::Cw721QueryMsg::NftInfo { .. } => {
-                             let extension = NftExtensionMsg {
+                            let extension = NftExtensionMsg {
                                 attributes: Some(traits_clone.clone().into()),
                                 ..NftExtensionMsg::default()
                             };
-                            SystemResult::Ok(ContractResult::Ok(to_json_binary(&NftInfoResponse { token_uri: None, extension }).unwrap()))
+                            SystemResult::Ok(ContractResult::Ok(
+                                to_json_binary(&NftInfoResponse {
+                                    token_uri: None,
+                                    extension,
+                                })
+                                .unwrap(),
+                            ))
                         }
-                        _ => SystemResult::Ok(ContractResult::Ok(to_json_binary(&OwnerOfResponse { owner: owner_str.clone(), approvals: vec![] }).unwrap()))
+                        _ => SystemResult::Ok(ContractResult::Ok(
+                            to_json_binary(&OwnerOfResponse {
+                                owner: owner_str.clone(),
+                                approvals: vec![],
+                            })
+                            .unwrap(),
+                        )),
                     }
                 } else if contract_addr == &oracle_str {
                     // MOCK ORACLE RANDOMNESS
-                    let resp = RandomnessResponse { randomness: Binary::from(vec![123; 32]) }; 
+                    let resp = BeaconResponse {
+                        uniform_seed: [123u8; 32],
+                    };
                     SystemResult::Ok(ContractResult::Ok(to_json_binary(&resp).unwrap()))
                 } else {
-                    SystemResult::Err(SystemError::UnsupportedRequest { kind: "unknown addr".into() })
+                    SystemResult::Err(SystemError::UnsupportedRequest {
+                        kind: "unknown addr".into(),
+                    })
                 }
             }
-            _ => SystemResult::Err(SystemError::UnsupportedRequest { kind: "skip".into() }),
+            _ => SystemResult::Err(SystemError::UnsupportedRequest {
+                kind: "skip".into(),
+            }),
         });
 
         // Execute Resolve
-        let resolve_msg = ExecuteMsg::ResolveSpin { token_id: "1".to_string() };
-        let info = message_info(&owner, &[]); 
+        let resolve_msg = ExecuteMsg::ResolveSpin {
+            token_id: "1".to_string(),
+        };
+        let info = message_info(&owner, &[]);
         let res = execute(deps.as_mut(), env, info, resolve_msg).unwrap();
 
         assert_eq!(res.attributes[0].value, "resolve_spin");
-        
+
         // Verify NFT Update Message sent
-        assert_eq!(res.messages.len(), 1); 
+        assert_eq!(res.messages.len(), 1);
         match &res.messages[0].msg {
             cosmwasm_std::CosmosMsg::Wasm(WasmMsg::Execute { contract_addr, .. }) => {
                 assert_eq!(contract_addr, &cw721_addr_verification);
-            },
+            }
             _ => panic!("Expected Wasm Execute"),
         }
     }

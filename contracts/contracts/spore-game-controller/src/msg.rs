@@ -1,5 +1,5 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Binary, Decimal, Uint128};
+use cosmwasm_std::{Decimal, Uint128, Uint64};
 use spore_fates::game::GlobalBiomass;
 
 #[cw_serde]
@@ -8,7 +8,7 @@ pub struct InstantiateMsg {
     pub spin_cost: Uint128,
     pub mint_cost: Uint128,
     pub mint_cost_increment: Uint128,
-    pub oracle_addr: String, 
+    pub oracle_addr: String,
     pub cw721_addr: String,
 }
 
@@ -65,7 +65,9 @@ pub enum QueryMsg {
         start_after: Option<String>,
         limit: Option<u32>,
     },
-    GetPendingSpin { token_id: String },
+    GetPendingSpin {
+        token_id: String,
+    },
 }
 
 #[cw_serde]
@@ -115,10 +117,10 @@ pub struct PendingSpinResponse {
 
 #[cw_serde]
 pub enum OracleQueryMsg {
-    GetRandomness { round: u64 },
+    Beacon { round: Uint64 },
 }
 
 #[cw_serde]
-pub struct RandomnessResponse {
-    pub randomness: Binary,
+pub struct BeaconResponse {
+    pub uniform_seed: [u8; 32],
 }

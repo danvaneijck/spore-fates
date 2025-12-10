@@ -5,7 +5,6 @@ import { NETWORK_CONFIG } from '../config';
 import { TraitExtension } from '../services/shroomService';
 import { GeneticsDisplay } from './GeneticsDisplay';
 import { HarvestOverlay } from './HarvestOverlay';
-import { RankBadge } from './RankBadge';
 
 interface SpinInterfaceProps {
   tokenId: string;
@@ -16,6 +15,8 @@ interface SpinInterfaceProps {
   rewardInfo: { accumulated: string, multiplier: string, payout: string };
   isLoading: boolean;
   globalTotalShares: number;
+  onReveal: () => Promise<void>;
+  spinStage: 'idle' | 'requesting' | 'waiting_drand' | 'ready_to_reveal' | 'resolving';
 }
 
 export const SpinInterface: React.FC<SpinInterfaceProps> = ({
@@ -26,7 +27,9 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
   onAscend,
   rewardInfo,
   isLoading,
-  globalTotalShares
+  globalTotalShares,
+  onReveal,
+  spinStage
 }) => {
 
   // Calculate Totals (Volatile + Base)
@@ -38,7 +41,7 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
   const isMaxVolatile = traits.cap === 3 && traits.stem === 3 && traits.spores === 3;
   const canAscend = isMaxVolatile && traits.substrate < 4;
 
-  const formatVal = (val: string) => (parseInt(val) / Math.pow(10, NETWORK_CONFIG.paymentDecimals)).toFixed(2);
+  const formatVal = (val: string) => (parseInt(val) / Math.pow(10, NETWORK_CONFIG.paymentDecimals)).toFixed(3);
 
   const payoutVal = parseFloat(formatVal(rewardInfo.payout));
   const accumulatedVal = parseFloat(formatVal(rewardInfo.accumulated));
@@ -90,8 +93,8 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
     await onHarvest();
 
     // If successful (no error thrown), show animation
-    if (parseFloat(amountToCapture) > 0) {
-      setHarvestedAmount(amountToCapture);
+    if (amountToCapture > 0) {
+      setHarvestedAmount(amountToCapture.toString());
       setShowHarvest(true);
     }
   };
@@ -212,64 +215,113 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
             </div>
 
             <div className="space-y-3">
-              {/* CAP BUTTON - RED */}
-              <button
-                onClick={() => onSpin('cap')}
-                disabled={isLoading}
-                className="w-full flex items-center justify-between px-6 py-4 bg-gradient-to-r from-red-500/20 to-red-500/10 border border-red-500/30 rounded-xl hover:border-red-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
-              >
-                <span className="text-text font-semibold group-hover:text-red-400 transition-colors">Spin Cap</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-textSecondary">{currentCost} {NETWORK_CONFIG.paymentSymbol}</span>
-                  {isLoading ? (
-                    <Loader2 size={20} className="text-red-500 animate-spin" />
-                  ) : (
-                    <Sparkles size={20} className="text-red-500 group-hover:scale-110 transition-transform" />
-                  )}
-                </div>
-              </button>
 
-              {/* STEM BUTTON - GREEN */}
-              <button
-                onClick={() => onSpin('stem')}
-                disabled={isLoading}
-                className="w-full flex items-center justify-between px-6 py-4 bg-gradient-to-r from-green-500/20 to-green-500/10 border border-green-500/30 rounded-xl hover:border-green-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
-              >
-                <span className="text-text font-semibold group-hover:text-green-400 transition-colors">Spin Stem</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-textSecondary">{currentCost} {NETWORK_CONFIG.paymentSymbol}</span>
-                  {isLoading ? (
-                    <Loader2 size={20} className="text-green-500 animate-spin" />
-                  ) : (
-                    <Sparkles size={20} className="text-green-500 group-hover:scale-110 transition-transform" />
-                  )}
-                </div>
-              </button>
+              {spinStage === 'idle' && (
+                <>
+                  {/* CAP BUTTON - RED */}
+                  <button
+                    onClick={() => onSpin('cap')}
+                    disabled={isLoading}
+                    className="w-full flex items-center justify-between px-6 py-4 bg-gradient-to-r from-red-500/20 to-red-500/10 border border-red-500/30 rounded-xl hover:border-red-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+                  >
+                    <span className="text-text font-semibold group-hover:text-red-400 transition-colors">Spin Cap</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-textSecondary">{currentCost} {NETWORK_CONFIG.paymentSymbol}</span>
+                      {isLoading ? (
+                        <Loader2 size={20} className="text-red-500 animate-spin" />
+                      ) : (
+                        <Sparkles size={20} className="text-red-500 group-hover:scale-110 transition-transform" />
+                      )}
+                    </div>
+                  </button>
 
-              {/* SPORES BUTTON - BLUE */}
-              <button
-                onClick={() => onSpin('spores')}
-                disabled={isLoading}
-                className="w-full flex items-center justify-between px-6 py-4 bg-gradient-to-r from-blue-500/20 to-blue-500/10 border border-blue-500/30 rounded-xl hover:border-blue-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
-              >
-                <span className="text-text font-semibold group-hover:text-blue-400 transition-colors">Spin Spores</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-textSecondary">{currentCost} {NETWORK_CONFIG.paymentSymbol}</span>
-                  {isLoading ? (
-                    <Loader2 size={20} className="text-blue-500 animate-spin" />
-                  ) : (
-                    <Sparkles size={20} className="text-blue-500 group-hover:scale-110 transition-transform" />
-                  )}
+                  {/* STEM BUTTON - GREEN */}
+                  <button
+                    onClick={() => onSpin('stem')}
+                    disabled={isLoading}
+                    className="w-full flex items-center justify-between px-6 py-4 bg-gradient-to-r from-green-500/20 to-green-500/10 border border-green-500/30 rounded-xl hover:border-green-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+                  >
+                    <span className="text-text font-semibold group-hover:text-green-400 transition-colors">Spin Stem</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-textSecondary">{currentCost} {NETWORK_CONFIG.paymentSymbol}</span>
+                      {isLoading ? (
+                        <Loader2 size={20} className="text-green-500 animate-spin" />
+                      ) : (
+                        <Sparkles size={20} className="text-green-500 group-hover:scale-110 transition-transform" />
+                      )}
+                    </div>
+                  </button>
+
+                  {/* SPORES BUTTON - BLUE */}
+                  <button
+                    onClick={() => onSpin('spores')}
+                    disabled={isLoading}
+                    className="w-full flex items-center justify-between px-6 py-4 bg-gradient-to-r from-blue-500/20 to-blue-500/10 border border-blue-500/30 rounded-xl hover:border-blue-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+                  >
+                    <span className="text-text font-semibold group-hover:text-blue-400 transition-colors">Spin Spores</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-textSecondary">{currentCost} {NETWORK_CONFIG.paymentSymbol}</span>
+                      {isLoading ? (
+                        <Loader2 size={20} className="text-blue-500 animate-spin" />
+                      ) : (
+                        <Sparkles size={20} className="text-blue-500 group-hover:scale-110 transition-transform" />
+                      )}
+                    </div>
+                  </button>
+                </>
+              )}
+
+              {/* STATE: REQUESTING (Loading 1) */}
+              {spinStage === 'requesting' && (
+                <div className="py-8 text-center border-2 border-dashed border-primary/30 rounded-xl bg-primary/5 animate-pulse">
+                  <Loader2 size={32} className="mx-auto text-primary animate-spin mb-2" />
+                  <p className="text-primary font-bold">Initiating Mutation...</p>
+                  <p className="text-xs text-textSecondary">Please sign the request transaction</p>
                 </div>
-              </button>
+              )}
+
+              {/* STATE: WAITING (Drand) */}
+              {spinStage === 'waiting_drand' && (
+                <div className="py-8 text-center border-2 border-dashed border-purple-500/30 rounded-xl bg-purple-500/5">
+                  <div className="relative w-12 h-12 mx-auto mb-3">
+                    <div className="absolute inset-0 border-4 border-purple-500/20 rounded-full"></div>
+                    <div className="absolute inset-0 border-4 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
+                  </div>
+                  <p className="text-purple-400 font-bold">Consulting the Oracle...</p>
+                  <p className="text-xs text-textSecondary">Waiting for verifiable randomness (~3s)</p>
+                </div>
+              )}
+
+              {/* STATE: READY (Reveal Button) */}
+              {spinStage === 'ready_to_reveal' && (
+                <button
+                  onClick={onReveal} // CALL MANUAL RESOLVE
+                  className="w-full py-6 bg-gradient-to-r from-purple-600 to-pink-600 hover:scale-[1.02] text-white rounded-xl font-bold text-xl shadow-lg shadow-purple-500/20 transition-all animate-bounce-short"
+                >
+                  <div className="flex items-center justify-center gap-3">
+                    <Sparkles size={24} className="animate-pulse" />
+                    REVEAL FATE
+                  </div>
+                </button>
+              )}
+
+              {/* STATE: RESOLVING (Loading 2) */}
+              {spinStage === 'resolving' && (
+                <div className="py-8 text-center border-2 border-dashed border-green-500/30 rounded-xl bg-green-500/5 animate-pulse">
+                  <Loader2 size={32} className="mx-auto text-green-500 animate-spin mb-2" />
+                  <p className="text-green-500 font-bold">Applying Mutation...</p>
+                </div>
+              )}
+
             </div>
           </div>
           {/* Rewards */}
           <div className="bg-surface rounded-3xl p-8 border border-border">
-            <div className="flex items-center gap-2 mb-6">
+            <div className="flex items-center gap-2 mb">
               <TrendingUp size={24} className="text-success" />
               <h3 className="text-xl font-bold text-text">Rewards</h3>
             </div>
+            <div className='mb-2 text-white text-sm'>Harvesting rewards resets your volatile stats.</div>
 
             <div className={`relative border rounded-xl p-6 mb-4 transition-colors
              ${isShadowZone ? 'bg-red-500/5 border-red-500/30' : 'bg-gradient-to-r from-success/20 to-success/10 border-success/30'}`}>

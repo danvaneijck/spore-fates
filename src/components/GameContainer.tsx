@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { EcosystemMetrics, RewardInfo, shroomService, TraitExtension } from "../services/shroomService";
-import { parseSpinResult, SpinResult } from "../utils/transactionParser";
+import { DRAND_HASH, EcosystemMetrics, RewardInfo, shroomService, TraitExtension } from "../services/shroomService";
+import { findAttribute, parseSpinResult, SpinResult } from "../utils/transactionParser";
 import { Dna, FlaskConical, Sprout } from "lucide-react";
 import { EcosystemWeather } from "./EcosystemWeather";
 import { SpinInterface } from "./SpinInterface";
@@ -14,6 +14,9 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
     const [activeTab, setActiveTab] = useState<'mutate' | 'breed'>('mutate');
 
     const { tokenId } = useParams();
+
+    const [spinStage, setSpinStage] = useState<'idle' | 'requesting' | 'waiting_drand' | 'resolving' | 'ready_to_reveal'>('idle');
+    const [pendingRound, setPendingRound] = useState<number | null>(null);
 
     const [traits, setTraits] = useState<TraitExtension>({
         cap: 0, stem: 0, spores: 0, substrate: 0,
@@ -30,6 +33,49 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
     const [spinResult, setSpinResult] = useState<SpinResult | null>(null);
     const [showWheel, setShowWheel] = useState(false);
     const [pendingTraitUpdate, setPendingTraitUpdate] = useState<TraitExtension | null>(null);
+
+    const handleResolve = useCallback(async (round: number) => {
+        setSpinStage('resolving');
+
+        // Construct the Batch TX
+        const msgs = await shroomService.makeResolveBatchMsg(address, tokenId, round);
+
+        // Execute Tx 2 (User signs again)
+        const result = await executeTransaction(msgs, 'resolve_spin'); // Note: executeTransaction needs to handle array of msgs
+
+        if (result) {
+            const parsed = parseSpinResult(result);
+            if (parsed) {
+                setSpinResult(parsed);
+                setShowWheel(true);
+            }
+        }
+        setSpinStage('idle');
+    }, [address, executeTransaction, tokenId]);
+
+    const manualResolve = async () => {
+        if (!pendingRound) return;
+        await handleResolve(pendingRound);
+    };
+
+    const waitForDrand = useCallback(async (round: number) => {
+        // Clear any existing intervals if necessary (optional safeguard)
+
+        const checkDrand = setInterval(async () => {
+            try {
+                const response = await fetch(`https://api.drand.sh/${DRAND_HASH}/public/${round}`);
+                if (response.ok) {
+                    clearInterval(checkDrand);
+                    // When round appears, change UI to Reveal Button
+                    setSpinStage('ready_to_reveal');
+                }
+            } catch (e) { /* ignore */ }
+        }, 1000);
+
+        // Cleanup interval on unmount
+        return () => clearInterval(checkDrand);
+    }, []);
+
 
     useEffect(() => {
         if (!address || !tokenId) return;
@@ -59,19 +105,64 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
         fetchData();
     }, [address, tokenId, refreshTrigger, showWheel]);
 
-    const onSpin = async (target) => {
+    // RESUME STATE ON LOAD
+    useEffect(() => {
         if (!tokenId) return;
-        const cost = shroomService.getSpinCost(traits.substrate);
 
-        const msg = shroomService.makeSpinMsg(address, tokenId, target, cost);
-        const result = await executeTransaction(msg, 'spin');
+        const checkPendingState = async () => {
+            // 1. Ask Contract: Is this mushroom stuck?
+            const status = await shroomService.getPendingSpinStatus(tokenId);
+
+            if (status.is_pending) {
+                console.log(`Found pending spin for round ${status.target_round}`);
+                setPendingRound(status.target_round);
+
+                // 2. Check if Drand has generated this round yet
+                try {
+                    const response = await fetch(`https://api.drand.sh/${DRAND_HASH}/public/${status.target_round}`);
+
+                    if (response.ok) {
+                        // Round exists -> User can Reveal immediately
+                        setSpinStage('ready_to_reveal');
+                    } else {
+                        // Round not ready -> Start Waiting
+                        setSpinStage('waiting_drand');
+                        waitForDrand(status.target_round);
+                    }
+                } catch (e) {
+                    // Network error or 404 -> Start Waiting
+                    setSpinStage('waiting_drand');
+                    waitForDrand(status.target_round);
+                }
+            } else {
+                // No pending spin -> Standard UI
+                setSpinStage('idle');
+            }
+        };
+
+        checkPendingState();
+    }, [tokenId, waitForDrand]);
+
+    const onSpin = async (target) => {
+        // STEP 1: REQUEST
+        setSpinStage('requesting');
+
+        const cost = shroomService.getSpinCost(traits.substrate);
+        const msg = shroomService.makeRequestSpinMsg(address, tokenId, target, cost);
+
+        // Execute Tx 1
+        const result = await executeTransaction(msg, 'request_spin');
 
         if (result) {
-            const parsed = parseSpinResult(result);
-            if (parsed) {
-                setSpinResult(parsed);
-                setShowWheel(true);
-            }
+            // Find the target round from the logs
+            const round = findAttribute(result, "wasm", 'target_round');
+            setPendingRound(parseInt(round));
+            setSpinStage('waiting_drand');
+
+            // Start Polling Drand API
+            waitForDrand(parseInt(round));
+        } else {
+            setSpinStage('idle');
         }
     };
 
@@ -147,6 +238,8 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
                         onSpin={onSpin}
                         onHarvest={onHarvest}
                         onAscend={onAscend}
+                        onReveal={manualResolve} // PASS HANDLER
+                        spinStage={spinStage}    // PASS STATE
                         rewardInfo={rewardInfo}
                         isLoading={isLoading}
                         globalTotalShares={parseFloat(globalShares)}

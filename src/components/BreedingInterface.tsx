@@ -181,6 +181,7 @@ export const BreedingInterface: React.FC<Props> = ({
                 <div className="bg-surface rounded-3xl p-6 border border-border">
                     <h3 className="text-lg font-bold text-text mb-4">Select Breeding Partner</h3>
                     <PartnerSelector
+                        parentAGenome={parentATraits.genome}
                         address={address}
                         excludeId={parentAId}
                         selectedId={parentBId}

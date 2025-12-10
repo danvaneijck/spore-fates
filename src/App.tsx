@@ -9,7 +9,6 @@ import { NETWORK_CONFIG } from './config';
 import { showTransactionToast } from './utils/toast';
 import { About } from './pages/about';
 import GameDashboard from './components/GameDashboard';
-import { GlobalStatsBanner } from './components/GlobalStatsBanner';
 
 
 function App() {

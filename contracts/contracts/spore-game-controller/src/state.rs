@@ -12,7 +12,7 @@ pub struct GameConfig {
     pub mint_cost: Uint128,
     pub mint_cost_increment: Uint128,
     pub cw721_addr: Addr,
-    pub oracle_addr: Addr, 
+    pub oracle_addr: Addr,
 }
 
 #[cw_serde]

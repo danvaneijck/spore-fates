@@ -18,6 +18,7 @@ export const NETWORK_CONFIG = {
     paymentDecimals: import.meta.env.VITE_MINT_DECIMALS,
     mintCost: import.meta.env.VITE_MINT_COST,
     spinCost: import.meta.env.VITE_SPIN_COST,
+    oracleAddress: import.meta.env.VITE_ORACLE_ADDRESS,
 
     // Explorer URLs
     explorerUrl:

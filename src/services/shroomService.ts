@@ -3,6 +3,10 @@ import { ChainGrpcWasmApi } from "@injectivelabs/sdk-ts";
 import { NETWORK_CONFIG } from "../config";
 import { getNetworkEndpoints, Network } from "@injectivelabs/networks";
 
+export const DRAND_HASH =
+    "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971"; // Quicknet
+const DRAND_HTTP_URL = "https://api.drand.sh";
+
 const network =
     NETWORK_CONFIG.network === "mainnet" ? Network.Mainnet : Network.Testnet;
 
@@ -581,5 +585,112 @@ export const shroomService = {
         }
 
         return msgs;
+    },
+
+    /**
+     * 1. REQUEST SPIN (First Transaction)
+     */
+    makeRequestSpinMsg(
+        userAddress: string,
+        tokenId: string,
+        target: string,
+        cost: string
+    ) {
+        return new MsgExecuteContract({
+            sender: userAddress,
+            contractAddress: NETWORK_CONFIG.gameControllerAddress,
+            msg: {
+                spin: {
+                    // Remember: We renamed the logic to 'request spin' internally, but msg enum is likely still 'Spin'
+                    token_id: tokenId,
+                    trait_target: target,
+                },
+            },
+            funds: { denom: NETWORK_CONFIG.paymentDenom, amount: cost },
+        });
+    },
+
+    /**
+     * 2. RESOLVE SPIN (Second Transaction - The "User Bot" Action)
+     * This creates a BATCH transaction:
+     * Msg 1: Update Oracle with Drand Sig
+     * Msg 2: Resolve Game Result
+     */
+    async makeResolveBatchMsg(
+        userAddress: string,
+        tokenId: string,
+        targetRound: number
+    ) {
+        // A. Fetch the beacon from Drand Public API
+        let beacon;
+        try {
+            const response = await fetch(
+                `${DRAND_HTTP_URL}/${DRAND_HASH}/public/${targetRound}`
+            );
+            beacon = await response.json();
+        } catch (e) {
+            console.error("Drand round not ready yet");
+            throw new Error("Randomness not generated yet. Please wait.");
+        }
+
+        // B. Construct Oracle Update Message
+        // The contract expects HexBinary, which accepts the raw hex string from Drand API.
+        // No Base64 conversion needed.
+        const oracleMsg = new MsgExecuteContract({
+            sender: userAddress,
+            contractAddress: NETWORK_CONFIG.oracleAddress,
+            msg: {
+                add_beacon: {
+                    round: targetRound.toString(),
+                    signature: beacon.signature, // Pass raw Hex
+                    randomness: beacon.randomness, // Pass raw Hex (Required by contract)
+                },
+            },
+        });
+
+        // C. Construct Game Resolve Message
+        const gameMsg = new MsgExecuteContract({
+            sender: userAddress,
+            contractAddress: NETWORK_CONFIG.gameControllerAddress,
+            msg: {
+                resolve_spin: {
+                    token_id: tokenId,
+                },
+            },
+        });
+
+        return [oracleMsg, gameMsg];
+    },
+
+    /**
+     * Check if a token has a pending spin waiting for randomness
+     */
+    async getPendingSpinStatus(
+        tokenId: string
+    ): Promise<{ is_pending: boolean; target_round: number }> {
+        try {
+            const queryMsg = {
+                get_pending_spin: {
+                    token_id: tokenId,
+                },
+            };
+
+            const response = await wasmApi.fetchSmartContractState(
+                NETWORK_CONFIG.gameControllerAddress,
+                queryMsg
+            );
+
+            const data = JSON.parse(new TextDecoder().decode(response.data));
+
+            // Contract returns { is_pending: bool, target_round: u64 }
+            return {
+                is_pending: data.is_pending,
+                target_round: parseInt(data.target_round || "0"),
+            };
+        } catch (error) {
+            console.error("Error fetching pending spin status:", error);
+            // Return safe default if query fails (e.g. token has no pending state)
+            return { is_pending: false, target_round: 0 };
+        }
     },
 };

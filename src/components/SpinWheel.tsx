@@ -22,52 +22,47 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
 
   const wheelRef = useRef<HTMLDivElement>(null);
 
-  // -- 1. Logic Setup --
   useEffect(() => {
     if (isSpinning) {
       setShowResult(false);
 
-      // A. Calculate Standard Outcomes based on Rust Logic
-      // This mimics the "standard" result if a critical or protection didn't happen
-      // Logic: if -1 -> 1, else +1 (clamped 3)
+      // A. Calculate Standard Outcomes
       const standardSuccess = oldValue === -1 ? 1 : Math.min(oldValue + 1, 3);
-
-      // Logic: if 1 -> -1, else -1 (clamped -3)
       const standardFail = oldValue === 1 ? -1 : Math.max(oldValue - 1, -3);
 
-      // B. Determine if the actual result was a "Win" (mechanically)
-      // A win is defined as moving "Up" or the specific jump from -1 to 1
+      // B. Win Detection
       const isWin = newValue > oldValue || (oldValue === -1 && newValue === 1);
 
-      // C. Generate 8 Segments (Alternating Fail/Success) representing 50/50 odds
-      // Even indices (0, 2, 4, 6) = Fail Scenarios
-      // Odd indices  (1, 3, 5, 7) = Success Scenarios
+      // C. Generate 8 Segments
       const newSegments = Array(8).fill(0).map((_, i) => {
         return i % 2 === 0 ? standardFail : standardSuccess;
       });
 
       // D. Select Target Index
-      // We pick a random segment that matches our Win/Loss state
       const possibleIndices = isWin ? [1, 3, 5, 7] : [0, 2, 4, 6];
       const selectedIndex = possibleIndices[Math.floor(Math.random() * possibleIndices.length)];
 
-      // E. Patch the Target Segment (Crucial for Criticals/Protection)
-      // If the actual 'newValue' differs from standard logic (e.g. Critical Hit or Substrate Protection),
-      // we overwrite the value on the specific segment we are landing on.
+      // E. Patch the Target
       newSegments[selectedIndex] = newValue;
-
       setWheelSegments(newSegments);
 
-      // F. Rotation Physics
+      // F. Rotation Physics with Randomness
       const segmentAngle = 360 / 8; // 45 degrees
       const centerOffset = segmentAngle / 2;
 
-      // Calculate angle to land on the specific selected index
+      // 1. Calculate the ideal center angle for the target
       const targetAngle = (selectedIndex * segmentAngle) + centerOffset;
 
-      // 5 Full spins + target
-      const spins = 5;
-      const finalRotation = -((spins * 360) + targetAngle);
+      // 2. Add "Fuzz" (Randomness within the wedge)
+      // Max deviation +/- 18 degrees (to keep it safely inside the 45deg wedge)
+      const fuzz = (Math.random() * 36) - 18;
+
+      // 3. Variable Spin Count (Between 4 and 6 spins)
+      const extraSpins = Math.floor(Math.random() * 3) + 4; // 4, 5, or 6
+
+      // 4. Calculate Final Rotation
+      // Negative rotation for clockwise spin
+      const finalRotation = -((extraSpins * 360) + targetAngle + fuzz);
 
       const handleTransitionEnd = (e: TransitionEvent) => {
         if (e.propertyName === 'transform' && e.target === wheelRef.current) {
@@ -80,6 +75,7 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
         wheelRef.current.addEventListener('transitionend', handleTransitionEnd);
       }
 
+      // Trigger animation next frame
       requestAnimationFrame(() => {
         setRotation(finalRotation);
       });
@@ -94,7 +90,7 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
 
   if (!isSpinning && !showResult) return null;
 
-  // -- 2. Visual Helpers --
+  // -- Visual Helpers --
 
   const getTraitColor = () => {
     switch (traitTarget) {
@@ -109,7 +105,6 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
   const segmentAngle = 360 / 8;
 
   const createSegmentPath = (index: number) => {
-    // Start from -90deg (12 o'clock)
     const startAngle = ((index * segmentAngle) - 90) * (Math.PI / 180);
     const endAngle = (((index + 1) * segmentAngle) - 90) * (Math.PI / 180);
     const radius = 128;
@@ -123,14 +118,9 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
   };
 
   const getSegmentColor = (index: number, val: number) => {
-    const isSuccessSlot = index % 2 !== 0; // Odd indices are "Success" slots in our 50/50 logic
-
-    // Visually indicate the nature of the slot
+    const isSuccessSlot = index % 2 !== 0;
     if (isSuccessSlot) return 'rgba(16, 185, 129, 1)'; // Green
-
-    // If it's a fail slot, but the value didn't drop (Protection), use Neutral/Gold
-    if (!isSuccessSlot && val >= oldValue) return 'rgba(234, 179, 8, 1)';
-
+    if (!isSuccessSlot && val >= oldValue) return 'rgba(234, 179, 8, 1)'; // Yellow/Protected
     return 'rgba(239, 68, 68, 1)'; // Red
   };
 
@@ -164,6 +154,8 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
             className="w-64 h-64 rounded-full shadow-2xl overflow-hidden relative"
             style={{
               transform: `rotate(${rotation}deg)`,
+              // Added randomness to duration slightly (3000ms + random 500ms) logic could be added here too if desired,
+              // but keeping timing consistent for UX is usually better.
               transition: isSpinning ? 'transform 3000ms cubic-bezier(0.2, 0.8, 0.2, 1)' : 'none',
               background: '#1a1a1a',
             }}

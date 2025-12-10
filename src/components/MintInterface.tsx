@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Sparkles, Loader2, Coins, TrendingUp } from 'lucide-react';
 import { NETWORK_CONFIG } from '../config';
 import { MushroomGrowth } from './MushroomGrowth'; // Import the new component
+import { shroomService } from '../services/shroomService';
 
 interface MintInterfaceProps {
   onMint: (price: string) => Promise<void>;
@@ -17,7 +18,9 @@ export const MintInterface: React.FC<MintInterfaceProps> = ({
 
   // Fetch Bonding Curve Price
   const fetchPrice = async () => {
-    const priceRaw = NETWORK_CONFIG.mintCost * Math.pow(10, NETWORK_CONFIG.paymentDecimals);
+    const price = await shroomService.getCurrentMintPrice();
+
+    const priceRaw = Number(price)
     setCurrentPrice((priceRaw).toString());
     const readable = (Number(priceRaw) / Math.pow(10, NETWORK_CONFIG.paymentDecimals)).toFixed(2);
     setDisplayPrice(readable);
@@ -151,7 +154,7 @@ export const MintInterface: React.FC<MintInterfaceProps> = ({
                       Price
                     </div>
                     <div className="text-xl font-bold text-text">
-                      {NETWORK_CONFIG.mintCost}
+                      {displayPrice}
                     </div>
                   </div>
                 </div>
@@ -159,7 +162,6 @@ export const MintInterface: React.FC<MintInterfaceProps> = ({
             </button>
           </div>
         </div>
-
       </div>
     </div>
   );

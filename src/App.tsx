@@ -41,6 +41,12 @@ function App() {
                 </Link>
               </nav>
 
+              <div className='md:hidden'>
+                <Link to="/about" className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-text hover:text-primary rounded-full hover:bg-background transition-all">
+                  About
+                </Link>
+              </div>
+
               {/* Socials & Connect */}
               <div className="flex items-center gap-4">
                 <div className="hidden md:flex gap-2">

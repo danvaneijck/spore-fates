@@ -13,7 +13,6 @@ const testnetEthRpc = "https://gateway.tenderly.co/public/goerli"
 export const walletStrategy = new WalletStrategy({
   chainId: NETWORK_CONFIG.chainId as ChainId,
   evmOptions: {
-
     evmChainId: NETWORK_CONFIG.network == "mainnet" ? EvmChainId.Mainnet : EvmChainId.Goerli,
     rpcUrl: NETWORK_CONFIG.network == "mainnet" ? ethRpc : testnetEthRpc,
   },
@@ -80,13 +79,11 @@ export const useWalletConnect = () => {
   // --- Disconnect Logic ---
   const disconnect = () => {
     storeDisconnect();
-    // Optional: Refresh page to clear any cached SDK states
-    // window.location.reload(); 
   };
 
   // --- Auto-Connect on Load ---
   useEffect(() => {
-    if (selectedWalletType && !connectedWallet) {
+    if (selectedWalletType) {
       connect(selectedWalletType);
     }
   }, [connect, connectedWallet, selectedWalletType]);

@@ -1,78 +1,18 @@
-import { useState } from 'react';
-import { WalletConnect, walletStrategy } from './components/Wallet/WalletConnect';
-import { ToastProvider } from './components/ToastProvider';
+import { ToastProvider } from './components/Providers/ToastProvider';
 import { Sprout, Github, Twitter, BookOpen, Home } from 'lucide-react';
-import { MsgBroadcaster } from "@injectivelabs/wallet-core";
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
-import { getNetworkEndpoints, Network } from '@injectivelabs/networks';
-import { NETWORK_CONFIG } from './config';
-import { showTransactionToast } from './utils/toast';
 import { About } from './pages/about';
 import GameDashboard from './components/GameDashboard';
-
+import { WalletConnectButton } from './components/Wallet/WalletConnectButton';
+import { WalletSelectModal } from './components/Modals/WalletSelectModal';
 
 function App() {
-  const [address, setAddress] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
-
-  const executeTransaction = async (msg: any, actionType: string = 'transaction') => {
-    setIsLoading(true);
-    const toastId = showTransactionToast.loading(
-      actionType === 'spin' ? 'Spinning the wheel...' :
-        actionType === 'harvest' ? 'Harvesting rewards...' :
-          actionType === 'ascend' ? 'Attempting ascension...' :
-            actionType === 'mint' ? 'Minting mushroom...' :
-              'Processing transaction...'
-    );
-
-    try {
-      const network = NETWORK_CONFIG.network === "mainnet" ? Network.Mainnet : Network.Testnet;
-      const endpoints = getNetworkEndpoints(network);
-
-      const broadcaster = new MsgBroadcaster({
-        walletStrategy: walletStrategy,
-        network,
-        endpoints,
-        simulateTx: true,
-        gasBufferCoefficient: 1.2,
-      });
-
-      const result = await broadcaster.broadcastV2({
-        msgs: msg,
-        injectiveAddress: address,
-      });
-
-      showTransactionToast.dismiss(toastId);
-      showTransactionToast.success(
-        result.txHash,
-        actionType === 'spin' ? 'Spin successful!' :
-          actionType === 'harvest' ? 'Rewards harvested!' :
-            actionType === 'ascend' ? 'Ascension complete!' :
-              actionType === 'mint' ? 'Mushroom minted!' :
-                'Transaction successful!'
-      );
-
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      setRefreshTrigger(prev => prev + 1);
-
-      return result;
-    } catch (e: any) {
-      console.error('Transaction Failed:', e);
-      showTransactionToast.dismiss(toastId);
-      showTransactionToast.error(
-        e?.message || 'Transaction failed. Please try again.'
-      );
-      return null;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
 
   return (
     <BrowserRouter>
       <ToastProvider />
+      <WalletSelectModal />
+
       <div className="min-h-screen bg-background">
 
         {/* HEADER */}
@@ -101,39 +41,26 @@ function App() {
                 </Link>
               </nav>
 
-              {/* Socials */}
+              {/* Socials & Connect */}
               <div className="flex items-center gap-4">
-                <a href="https://github.com/danvaneijck/spore-fates" target="_blank" rel="noopener noreferrer" className="p-2 hover:bg-background rounded-lg transition-colors">
-                  <Github size={20} className="text-textSecondary hover:text-text" />
-                </a>
-                <a href="https://x.com/trippy_inj" target="_blank" rel="noopener noreferrer" className="p-2 hover:bg-background rounded-lg transition-colors">
-                  <Twitter size={20} className="text-textSecondary hover:text-text" />
-                </a>
+                <div className="hidden md:flex gap-2">
+                  <a href="https://github.com/danvaneijck/spore-fates" target="_blank" rel="noreferrer" className="p-2 hover:bg-background rounded-lg transition-colors">
+                    <Github size={20} className="text-textSecondary hover:text-text" />
+                  </a>
+                  <a href="https://x.com/trippy_inj" target="_blank" rel="noreferrer" className="p-2 hover:bg-background rounded-lg transition-colors">
+                    <Twitter size={20} className="text-textSecondary hover:text-text" />
+                  </a>
+                </div>
+                <WalletConnectButton />
               </div>
-              <WalletConnect onAddressChange={setAddress} />
             </div>
           </div>
         </header>
 
         <main className="mx-auto px-4 sm:px-6 lg:px-10 ">
           <Routes>
-            {/* Route for the Rules Page */}
             <Route path="/about" element={<About />} />
-            {/* 
-              Route for the Main Game. 
-              The '/*' allows nested routes inside GameDashboard (like /play/:id) to work.
-            */}
-
-            <Route path="/*" element={
-              <GameDashboard
-                address={address}
-                setAddress={setAddress}
-                refreshTrigger={refreshTrigger}
-                setRefreshTrigger={setRefreshTrigger}
-                executeTransaction={executeTransaction}
-                isLoading={isLoading}
-              />
-            } />
+            <Route path="/*" element={<GameDashboard />} />
           </Routes>
         </main>
 

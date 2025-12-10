@@ -1,34 +1,39 @@
 import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sprout, Plus, Zap, Loader2, Coins, ArrowDownWideNarrow, Wheat } from 'lucide-react';
+import { Sprout, Plus, Zap, Loader2, Coins, ArrowDownWideNarrow, Wheat, AlertTriangle } from 'lucide-react';
 import { shroomService } from '../../services/shroomService';
 import { MsgBroadcaster } from "@injectivelabs/wallet-core";
 import { walletStrategy } from '../Wallet/WalletConnect';
 import { getNetworkEndpoints, Network } from '@injectivelabs/networks';
 import { NETWORK_CONFIG } from '../../config';
 import { showTransactionToast } from '../../utils/toast';
-import { MsgExecuteContract } from '@injectivelabs/sdk-ts';
 import { HarvestModal } from '../Modals/HarvestModal';
 import { BatchMintModal } from '../Modals/BatchMintModal';
+import { MsgExecuteContract } from '@injectivelabs/sdk-ts';
+import { useWalletStore } from '../../store/walletStore';
+import { useGameStore } from '../../store/gameStore';
 
 interface Props {
-    address: string;
     currentTokenId: string;
-    refreshTrigger: number;
 }
 
 interface TokenData {
     id: string;
     shares: number;
     dominance: number;
-    pendingRewards: number;
+    pendingRewards: number; // Actual Payout (0 if in Shadow Zone)
     formattedRewards: string;
-    multiplier: number; // Added to filter good/bad weather
+    accumulatedRewards: number; // Raw Accumulated (Ignored Weather)
+    formattedAccumulated: string;
+    multiplier: number;
 }
 
 type SortOption = 'power' | 'rewards';
 
-export const MushroomGallery: React.FC<Props> = ({ address, currentTokenId, refreshTrigger }) => {
+export const MushroomGallery: React.FC<Props> = ({ currentTokenId }) => {
+    const { connectedWallet: address } = useWalletStore();
+    const { refreshTrigger } = useGameStore();
+
     const [galleryData, setGalleryData] = useState<TokenData[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [sortBy, setSortBy] = useState<SortOption>('power');
@@ -65,12 +70,16 @@ export const MushroomGallery: React.FC<Props> = ({ address, currentTokenId, refr
                 ]);
 
                 const shares = gameInfo ? parseFloat(gameInfo.current_shares) : 0;
-                const rawRewards = rewardInfo ? BigInt(rewardInfo.payout) : BigInt(0);
-                // multiplier comes as string from contract (Decimal), parse to float
+
+                // Parse Rewards
+                const rawPayout = rewardInfo ? BigInt(rewardInfo.payout) : BigInt(0);
+                const rawAccumulated = rewardInfo ? BigInt(rewardInfo.accumulated) : BigInt(0);
                 const multiplier = rewardInfo ? parseFloat(rewardInfo.multiplier) : 0;
 
                 const dominance = globalTotalShares > 0 ? (shares / globalTotalShares) * 100 : 0;
-                const pendingRewards = Number(rawRewards) / Math.pow(10, NETWORK_CONFIG.paymentDecimals || 6);
+
+                const pendingRewards = Number(rawPayout) / Math.pow(10, NETWORK_CONFIG.paymentDecimals || 6);
+                const accumulatedRewards = Number(rawAccumulated) / Math.pow(10, NETWORK_CONFIG.paymentDecimals || 6);
 
                 return {
                     id,
@@ -78,6 +87,10 @@ export const MushroomGallery: React.FC<Props> = ({ address, currentTokenId, refr
                     dominance,
                     pendingRewards,
                     formattedRewards: pendingRewards.toLocaleString(undefined, {
+                        minimumFractionDigits: 2, maximumFractionDigits: 4
+                    }),
+                    accumulatedRewards,
+                    formattedAccumulated: accumulatedRewards.toLocaleString(undefined, {
                         minimumFractionDigits: 2, maximumFractionDigits: 4
                     }),
                     multiplier
@@ -105,21 +118,24 @@ export const MushroomGallery: React.FC<Props> = ({ address, currentTokenId, refr
                 if (b.shares === a.shares) return b.pendingRewards - a.pendingRewards;
                 return b.shares - a.shares;
             } else {
-                if (b.pendingRewards === a.pendingRewards) return b.shares - a.shares;
-                return b.pendingRewards - a.pendingRewards;
+                // Primary Sort: Who has the most CLAIMABLE rewards?
+                if (b.pendingRewards !== a.pendingRewards) {
+                    return b.pendingRewards - a.pendingRewards;
+                }
+                // Secondary Sort: If Payouts are equal (e.g. both 0), who has the most ACCUMULATED (Trapped) rewards?
+                if (b.accumulatedRewards !== a.accumulatedRewards) {
+                    return b.accumulatedRewards - a.accumulatedRewards;
+                }
+                return b.shares - a.shares;
             }
         });
     }, [galleryData, sortBy]);
 
     // --- HARVEST LOGIC ---
-
-    // 1. Identify "Ready" Mushrooms
     const harvestableTokens = useMemo(() => {
-        // Filter: Has rewards (> 0) AND Good Weather (Multiplier >= 1)
         return galleryData.filter(t => t.pendingRewards > 0 && t.multiplier >= 1);
     }, [galleryData]);
 
-    // 2. Prepare Summary (Fetch Traits to see what we lose)
     const handleHarvestAllClick = async () => {
         setIsHarvestModalOpen(true);
         setIsHarvestPreparing(true);
@@ -131,13 +147,11 @@ export const MushroomGallery: React.FC<Props> = ({ address, currentTokenId, refr
             let totalStem = 0;
             let totalSpores = 0;
 
-            // Fetch traits in parallel
             const traitPromises = targetIds.map(id => shroomService.getShroomTraits(id));
             const allTraits = await Promise.all(traitPromises);
 
             allTraits.forEach(trait => {
                 if (trait) {
-                    // Only count positive stats as "sacrificed"
                     if (trait.cap > 0) totalCap += trait.cap;
                     if (trait.stem > 0) totalStem += trait.stem;
                     if (trait.spores > 0) totalSpores += trait.spores;
@@ -166,14 +180,12 @@ export const MushroomGallery: React.FC<Props> = ({ address, currentTokenId, refr
         }
     };
 
-    // 3. Execute Batch Transaction
     const handleConfirmHarvest = async () => {
         if (!harvestStats) return;
         setIsHarvesting(true);
         const toastId = showTransactionToast.loading("Harvesting rewards...");
 
         try {
-            // Manually construct batch messages
             const msgs = harvestStats.targetIds.map(id => {
                 return new MsgExecuteContract({
                     sender: address,
@@ -192,13 +204,9 @@ export const MushroomGallery: React.FC<Props> = ({ address, currentTokenId, refr
             });
 
             await broadcaster.broadcastV2({ msgs, injectiveAddress: address });
-
             showTransactionToast.dismiss(toastId);
             showTransactionToast.success("Harvest complete!");
-
             setIsHarvestModalOpen(false);
-
-            // Wait a moment for indexer then refresh
             await new Promise(r => setTimeout(r, 2000));
             fetchTokens();
 
@@ -213,7 +221,6 @@ export const MushroomGallery: React.FC<Props> = ({ address, currentTokenId, refr
 
     const handleSelect = (id: string) => navigate(`/play/${id}`);
 
-    // --- BATCH MINT HANDLER (Existing) ---
     const handleBatchMint = async (count: number) => {
         setIsMinting(true);
         const toastId = showTransactionToast.loading(`Cultivating ${count} mushrooms...`);
@@ -227,6 +234,7 @@ export const MushroomGallery: React.FC<Props> = ({ address, currentTokenId, refr
                 endpoints,
                 simulateTx: true,
             });
+            console.log(walletStrategy.wallet)
             await broadcaster.broadcastV2({ msgs, injectiveAddress: address });
             showTransactionToast.dismiss(toastId);
             showTransactionToast.success("Batch mint successful! refreshing colony...");
@@ -254,7 +262,7 @@ export const MushroomGallery: React.FC<Props> = ({ address, currentTokenId, refr
                 </h3>
 
                 <div className="flex items-center gap-2">
-                    {/* Harvest All Button - Only shows if there are items to harvest */}
+                    {/* Harvest All Button */}
                     {harvestableTokens.length > 0 && (
                         <button
                             onClick={handleHarvestAllClick}
@@ -338,8 +346,8 @@ export const MushroomGallery: React.FC<Props> = ({ address, currentTokenId, refr
                                     ${token.id === currentTokenId ? 'bg-primary text-white' : 'bg-surface text-textSecondary'}
                                 `}>
                                     <Sprout size={18} />
-                                    {/* Small indicator if ready to harvest */}
-                                    {token.pendingRewards > 0 && token.multiplier >= 1 && (
+                                    {/* Green dot if claimable */}
+                                    {token.pendingRewards > 0 && (
                                         <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full border border-surface shadow-sm" />
                                     )}
                                 </div>
@@ -361,15 +369,46 @@ export const MushroomGallery: React.FC<Props> = ({ address, currentTokenId, refr
                                 </div>
 
                                 <div className="flex flex-col items-end min-w-[60px]">
-                                    <span className="text-[9px] uppercase opacity-50 font-bold">Pending</span>
-                                    <span className={`font-mono text-sm font-bold ${token.multiplier < 1 && token.pendingRewards > 0
-                                        ? 'text-orange-400' // Warning color if bad weather
-                                        : token.pendingRewards > 0
-                                            ? 'text-green-400'
-                                            : 'text-textSecondary'
-                                        }`}>
-                                        {token.formattedRewards}
-                                    </span>
+                                    {/* Logic to choose which reward value and color to show */}
+                                    {(() => {
+                                        const isShadowZone = token.multiplier < 0.8;
+                                        const hasPending = token.pendingRewards > 0;
+                                        const hasAccumulated = token.accumulatedRewards > 0;
+
+                                        if (hasPending) {
+                                            // Case 1: Active Rewards (Green)
+                                            return (
+                                                <>
+                                                    <span className="text-[9px] uppercase opacity-50 font-bold">Pending</span>
+                                                    <span className="font-mono text-sm font-bold text-green-400">
+                                                        {token.formattedRewards}
+                                                    </span>
+                                                </>
+                                            );
+                                        } else if (hasAccumulated && isShadowZone) {
+                                            // Case 2: Shadow Zone (Orange/Red)
+                                            return (
+                                                <>
+                                                    <span className="text-[9px] uppercase opacity-70 font-bold text-orange-400 flex items-center gap-1">
+                                                        <AlertTriangle size={8} /> Trapped
+                                                    </span>
+                                                    <span className="font-mono text-sm font-bold text-orange-400/80 line-through decoration-white/20">
+                                                        {token.formattedAccumulated}
+                                                    </span>
+                                                </>
+                                            );
+                                        } else {
+                                            // Case 3: Nothing (Grey)
+                                            return (
+                                                <>
+                                                    <span className="text-[9px] uppercase opacity-50 font-bold">Pending</span>
+                                                    <span className="font-mono text-sm font-bold text-textSecondary">
+                                                        0.00
+                                                    </span>
+                                                </>
+                                            );
+                                        }
+                                    })()}
                                 </div>
                             </div>
                         </button>

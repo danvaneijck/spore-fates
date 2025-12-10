@@ -5,6 +5,7 @@ import { NETWORK_CONFIG } from '../../config';
 import { TraitExtension } from '../../services/shroomService';
 import { GeneticsDisplay } from '../Mushroom/GeneticsDisplay';
 import { HarvestOverlay } from '../Overlays/HarvestOverlay';
+import { AscensionCard } from '../Info/AscensionCard';
 
 interface SpinInterfaceProps {
   tokenId: string;
@@ -391,59 +392,8 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
           </div>
 
           {/* Ascension */}
-          <div className="bg-surface rounded-3xl p-8 border border-border">
-            <div className="flex items-center gap-2 mb-6">
-              <Award size={24} className="text-warning" />
-              <h3 className="text-xl font-bold text-text">Ascension</h3>
-            </div>
+          <AscensionCard isLoading={isLoading} traits={traits} canAscend={canAscend} onAscend={onAscend} />
 
-            <div className="bg-gradient-to-r from-warning/20 to-warning/10 border border-warning/30 rounded-xl p-6 mb-4">
-              <div className="text-sm text-textSecondary mb-2">
-                {canAscend
-                  ? '✨ Ready to ascend! 20% chance to increase substrate level.'
-                  : traits.substrate === 4
-                    ? '🏆 Maximum substrate level reached!'
-                    : `📈 Reach +3 in all Volatile traits to unlock ascension.`
-                }
-              </div>
-
-              {/* Progress Indicators for Ascension */}
-              {traits.substrate < 4 && !canAscend && (
-                <div className="flex gap-2 mt-2 justify-center">
-                  <span className={`text-xs px-2 py-0.5 rounded ${traits.cap === 3 ? 'bg-green-500/20 text-green-400' : 'bg-background text-textSecondary'}`}>
-                    Cap {traits.cap}/3
-                  </span>
-                  <span className={`text-xs px-2 py-0.5 rounded ${traits.stem === 3 ? 'bg-green-500/20 text-green-400' : 'bg-background text-textSecondary'}`}>
-                    Stem {traits.stem}/3
-                  </span>
-                  <span className={`text-xs px-2 py-0.5 rounded ${traits.spores === 3 ? 'bg-green-500/20 text-green-400' : 'bg-background text-textSecondary'}`}>
-                    Spores {traits.spores}/3
-                  </span>
-                </div>
-              )}
-
-              {canAscend && (
-                <div className="text-xs text-warning mt-2 font-semibold">
-                  ⚠️ Burns all pending rewards. Resets volatile traits to 0.
-                </div>
-              )}
-            </div>
-
-            <button
-              onClick={onAscend}
-              disabled={isLoading || !canAscend}
-              className="w-full px-6 py-4 bg-gradient-to-r from-warning to-warning/80 text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-warning/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none"
-            >
-              {isLoading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <Loader2 size={20} className="animate-spin" />
-                  Processing...
-                </span>
-              ) : (
-                'Attempt Ascension'
-              )}
-            </button>
-          </div>
         </div>
 
       </div>

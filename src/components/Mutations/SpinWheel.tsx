@@ -231,7 +231,7 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
                   </div>
 
                   <div className="text-white/20">
-                    <Sprout size={20} className="rotate-90" />
+                    <Sprout size={20} className="" />
                   </div>
 
                   <div className="flex flex-col items-center relative">

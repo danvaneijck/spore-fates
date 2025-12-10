@@ -1,15 +1,26 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Sun, CloudFog, TrendingUp, AlertTriangle, Zap, Info } from 'lucide-react';
-import { EcosystemMetrics } from '../../services/shroomService';
 import { WeatherInfoModal } from '../Modals/WeatherInfoModal';
+import { EcosystemMetrics, shroomService } from '../../services/shroomService';
 
-interface Props {
-    metrics: EcosystemMetrics | null;
-}
 
-export const EcosystemWeather: React.FC<Props> = ({ metrics }) => {
+export const EcosystemWeather: React.FC = () => {
     // State for the modal
     const [isInfoOpen, setIsInfoOpen] = useState(false);
+
+    // Lifted State: Metrics now live here
+    const [metrics, setMetrics] = useState<EcosystemMetrics | null>(null);
+
+    const fetchMetrics = useCallback(async () => {
+        const data = await shroomService.getEcosystemMetrics();
+        setMetrics(data);
+    }, []);
+
+    useEffect(() => {
+        fetchMetrics();
+        const interval = setInterval(() => fetchMetrics(), 10000);
+        return () => clearInterval(interval);
+    }, [fetchMetrics]);
 
     if (!metrics) return null;
 

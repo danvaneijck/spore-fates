@@ -8,9 +8,16 @@ import { Dna, FlaskConical, Sprout } from "lucide-react";
 import { SpinInterface } from "./Mutations/SpinInterface";
 import { SpinWheel } from "./Mutations/SpinWheel";
 import { BreedingInterface } from "./Breeding/BreedingInterface";
+import { useWalletStore } from "../store/walletStore";
+import { useGameStore } from "../store/gameStore";
+import { useTransaction } from "../hooks/useTransaction";
 
 
-const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTransaction, isLoading }) => {
+const GameContainer = () => {
+
+    const { connectedWallet: address } = useWalletStore();
+    const { refreshTrigger, triggerRefresh } = useGameStore();
+    const { executeTransaction, isLoading } = useTransaction();
 
     const [activeTab, setActiveTab] = useState<'mutate' | 'breed'>('mutate');
     const { tokenId } = useParams();
@@ -157,7 +164,7 @@ const GameContainer = ({ address, refreshTrigger, setRefreshTrigger, executeTran
             setTraits(pendingTraitUpdate);
             setPendingTraitUpdate(null);
         }
-        setRefreshTrigger(prev => prev + 1);
+        triggerRefresh();
     };
 
     if (!tokenId) {

@@ -15,6 +15,21 @@ const endpoints = getNetworkEndpoints(network);
 // Initialize the Query API (Testnet endpoint)
 const wasmApi = new ChainGrpcWasmApi(endpoints.grpc);
 
+const chunkArray = <T>(array: T[], size: number): T[][] => {
+    const chunked: T[][] = [];
+    for (let i = 0; i < array.length; i += size) {
+        chunked.push(array.slice(i, i + size));
+    }
+    return chunked;
+};
+
+export interface LeaderboardItem {
+    rank: number;
+    id: string;
+    power: number;
+    owner: string;
+}
+
 export interface TraitExtension {
     cap: number;
     stem: number;
@@ -691,6 +706,98 @@ export const shroomService = {
             console.error("Error fetching pending spin status:", error);
             // Return safe default if query fails (e.g. token has no pending state)
             return { is_pending: false, target_round: 0 };
+        }
+    },
+
+    /**
+     * REAL Leaderboard Calculation
+     * 1. Fetches total count
+     * 2. Scans ALL token_infos
+     * 3. Sorts by power
+     * 4. Fetches owners for top 3
+     */
+    async getLeaderboard(): Promise<LeaderboardItem[]> {
+        try {
+            // 1. Get the range (1 to TotalMinted)
+            const stats = await this.getGameStats();
+            if (!stats) return [];
+
+            const totalMinted = stats.total_minted;
+            if (totalMinted === 0) return [];
+
+            // Create array of IDs ["1", "2", ... total]
+            const allIds = Array.from({ length: totalMinted }, (_, i) =>
+                (i + 1).toString()
+            );
+
+            // 2. Fetch Game Info for ALL tokens (Batched to avoid RPC rate limits)
+            const BATCH_SIZE = 20; // 20 requests at a time
+            const chunks = chunkArray(allIds, BATCH_SIZE);
+            let allTokenData: { id: string; power: number }[] = [];
+
+            for (const chunk of chunks) {
+                // Run a batch in parallel
+                const batchResults = await Promise.all(
+                    chunk.map(async (id) => {
+                        try {
+                            const info = await this.getTokenGameInfo(id);
+                            // If info is null, the token was burned (spliced)
+                            if (!info) return null;
+                            return {
+                                id,
+                                power: parseFloat(info.current_shares),
+                            };
+                        } catch (e) {
+                            return null;
+                        }
+                    })
+                );
+                // Filter out nulls (burned tokens) and add to list
+                const validResults = batchResults.filter(
+                    (item) => item !== null
+                ) as { id: string; power: number }[];
+                allTokenData = [...allTokenData, ...validResults];
+            }
+
+            // 3. Sort by Power (Descending)
+            allTokenData.sort((a, b) => b.power - a.power);
+
+            // 4. Take Top 3 and fetch their Owners
+            const top3 = allTokenData.slice(0, 3);
+
+            const leaderboardWithOwners = await Promise.all(
+                top3.map(async (item, index) => {
+                    // We need to fetch the owner from CW721 for the display
+                    let owner = "Unknown";
+                    try {
+                        const queryMsg = { owner_of: { token_id: item.id } };
+                        const res = await wasmApi.fetchSmartContractState(
+                            NETWORK_CONFIG.cw721Address,
+                            queryMsg
+                        );
+                        const data = JSON.parse(
+                            new TextDecoder().decode(res.data)
+                        );
+                        owner = data.owner;
+                        // Format address (inj1...xyz)
+                        owner = `${owner.slice(0, 6)}...${owner.slice(-4)}`;
+                    } catch (e) {
+                        console.error(`Failed to fetch owner for #${item.id}`);
+                    }
+
+                    return {
+                        rank: index + 1,
+                        id: item.id,
+                        power: item.power,
+                        owner,
+                    };
+                })
+            );
+
+            return leaderboardWithOwners;
+        } catch (error) {
+            console.error("Error calculating leaderboard:", error);
+            return [];
         }
     },
 };

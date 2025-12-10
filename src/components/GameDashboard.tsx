@@ -64,7 +64,7 @@ const GameDashboard = () => {
             <GlobalStatsBanner refreshTrigger={refreshTrigger} />
 
             {address && (
-                <div className="mb-8">
+                <div className="">
                     <PlayerStatsCard address={address} refreshTrigger={refreshTrigger} />
                 </div>
             )}

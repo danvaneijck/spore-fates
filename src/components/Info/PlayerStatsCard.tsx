@@ -69,7 +69,7 @@ export const PlayerStatsCard: React.FC<Props> = ({ address, refreshTrigger }) =>
     );
 
     return (
-        <div className="relative mb-8 mt-4">
+        <div className="relative mb-4 mt-4">
 
 
             {/* Grid */}

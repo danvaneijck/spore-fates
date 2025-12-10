@@ -187,7 +187,7 @@ export const MushroomRenderer: React.FC<MushroomRendererProps> = ({ traits, mini
           ))}
 
           {/* Substrate Level Dots */}
-          <g transform={minimal ? "translate(150, 265) scale(0.8)" : "translate(150, 250)"}>
+          <g transform={minimal ? "translate(150, 265) scale(0.8)" : "translate(150, 240)"}>
             {Array.from({ length: 5 }, (_, i) => (
               <circle
                 key={i}

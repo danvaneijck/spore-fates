@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { MushroomRenderer } from '../Mushroom/MushroomRenderer';
-import { Sparkles, TrendingUp, Award, Loader2, Lock, AlertTriangle, PieChart } from 'lucide-react';
+import { Sparkles, TrendingUp, Award, Loader2, Lock, AlertTriangle, PieChart, Zap } from 'lucide-react';
 import { NETWORK_CONFIG } from '../../config';
 import { TraitExtension } from '../../services/shroomService';
 import { GeneticsDisplay } from '../Mushroom/GeneticsDisplay';
@@ -68,7 +68,7 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
 
   // 2. Calculate Dominance
   const dominance = globalTotalShares > 0
-    ? ((myShares / globalTotalShares) * 100).toFixed(4)
+    ? ((myShares / globalTotalShares) * 100).toFixed(3)
     : "100.00";
 
   // Calculated forfeit amount
@@ -122,12 +122,22 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
         <div className="bg-surface rounded-3xl p-4 md:p-6 border border-border">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-2xl font-bold text-text">#{tokenId}</h3>
+              <div className='flex items-center gap-4'>
+                <h3 className="text-2xl font-bold text-text">#{tokenId}</h3>
+                <div className="flex flex-col items-end">
+                  <div className="flex items-center gap-1 font-mono text-lg font-bold text-yellow-500">
+                    <Zap size={14} fill="currentColor" />
+                    {myShares}
+                  </div>
+                </div>
+              </div>
+
               <p className="text-sm text-textSecondary mt-1">
                 Substrate Level: <span className="text-primary font-semibold">{getSubstrateLevel()}</span>
               </p>
 
             </div>
+
             {/* DOMINANCE CARD */}
             <div className="bg-black/20 rounded-xl p-3 border border-border/50 text-right min-w-[120px]">
               <div className="flex items-center justify-end gap-1 text-xs text-textSecondary mb-1 uppercase tracking-wider">
@@ -136,8 +146,8 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
               <div className="text-xl font-mono font-bold text-primary">
                 {dominance}%
               </div>
-
             </div>
+
           </div>
 
           <div className='max-w-[300px] m-auto'>

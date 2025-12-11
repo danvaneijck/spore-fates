@@ -11,7 +11,7 @@ export const WeatherInfoModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
-            <div className="bg-surface border border-border rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-scale-in">
+            <div className="bg-surface border border-border rounded-2xl w-full max-w-md overflow-y-scroll max-h-screen  shadow-2xl animate-scale-in">
 
                 {/* Header */}
                 <div className="p-4 border-b border-white/5 flex items-center justify-between bg-black/20">

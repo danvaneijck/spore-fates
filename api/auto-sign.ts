@@ -53,10 +53,34 @@ export default async function handler(request, response) {
             gasBufferCoefficient: 1.1,
         });
 
-        const txResponse = await broadcaster.broadcast({
-            msgs: msgExec,
-        });
+        async function broadcastWithRetry(maxRetries = 5) {
+            let attempt = 0;
 
+            while (attempt <= maxRetries) {
+                try {
+                    return await broadcaster.broadcast({ msgs: msgExec });
+                } catch (error) {
+                    const message = error?.message || "";
+
+                    const isSequenceError =
+                        message.includes("incorrect account sequence") ||
+                        message.includes("account sequence") ||
+                        message.includes("signature verification failed");
+
+                    if (!isSequenceError || attempt === maxRetries) {
+                        throw error;
+                    }
+
+                    // Retry
+                    attempt++;
+
+                    // Small delay to avoid hammering
+                    await new Promise((r) => setTimeout(r, 150 * attempt));
+                }
+            }
+        }
+
+        const txResponse = await broadcastWithRetry();
         return response.status(200).json(txResponse);
     } catch (error) {
         return response.status(500).json({

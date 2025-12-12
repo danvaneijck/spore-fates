@@ -346,17 +346,15 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
         {/* Right Column - Actions */}
         <div className="space-y-6">
 
-          <div className="flex items-center gap-2">
-
+          <div className="flex flex-col md:flex-row items-center gap-2">
             <div className="flex-1 flex items-center justify-between bg-black/20 p-4 rounded-2xl border border-white/5">
-
               <div className="flex items-center gap-3">
                 <div className={`p-2 rounded-full ${isAutoSignEnabled ? 'bg-green-500/20 text-green-400' : 'bg-white/5 text-textSecondary'}`}>
                   <Zap size={20} className={isAutoSignEnabled ? 'fill-current' : ''} />
                 </div>
                 <div>
                   <h4 className="text-sm font-bold text-text">Fast Mode (Auto-Sign)</h4>
-                  <p className="text-xs text-textSecondary">Skip wallet approval for rolls for 15 minutes</p>
+                  <p className="hidden md:block text-xs text-textSecondary">Skip wallet approval for rolls for 15 minutes</p>
                 </div>
               </div>
 

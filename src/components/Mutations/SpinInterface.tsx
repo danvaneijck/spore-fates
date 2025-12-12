@@ -221,7 +221,7 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
               </div>
               <div>
                 <h4 className="text-sm font-bold text-text">Fast Mode (Auto-Sign)</h4>
-                <p className="text-xs text-textSecondary">Skip wallet approval for rolls</p>
+                <p className="text-xs text-textSecondary">Skip wallet approval for rolls for 15 minutes</p>
               </div>
             </div>
 

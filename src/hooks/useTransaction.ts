@@ -10,7 +10,8 @@ import { useGameStore } from "../store/gameStore";
 export const useTransaction = () => {
     const [isLoading, setIsLoading] = useState(false);
 
-    const { connectedWallet, isAutoSignEnabled } = useWalletStore();
+    const { connectedWallet, isAutoSignEnabled, setAutoSignEnabled } =
+        useWalletStore();
     const { triggerRefresh } = useGameStore();
 
     const executeTransaction = useCallback(
@@ -65,6 +66,14 @@ export const useTransaction = () => {
 
                     const data = await response.json();
 
+                    if (
+                        !response.ok &&
+                        data.error.includes("failed to get grant")
+                    ) {
+                        console.log("no grant");
+                        setAutoSignEnabled(false);
+                        throw new Error("Auto-sign grant expired");
+                    }
                     if (!response.ok) {
                         throw new Error(
                             data.error || "Auto-sign request failed"
@@ -139,7 +148,7 @@ export const useTransaction = () => {
                 setIsLoading(false);
             }
         },
-        [connectedWallet, triggerRefresh, isAutoSignEnabled]
+        [connectedWallet, isAutoSignEnabled, triggerRefresh, setAutoSignEnabled]
     );
 
     return { executeTransaction, isLoading };

@@ -59,7 +59,6 @@ export default async function handler(request, response) {
 
         return response.status(200).json(txResponse);
     } catch (error) {
-        console.error("Auto-Sign Error:", error);
         return response.status(500).json({
             error: error.message || "Transaction failed",
             details: error.originalMessage,

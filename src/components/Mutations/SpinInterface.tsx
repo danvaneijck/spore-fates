@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { MushroomRenderer } from '../Mushroom/MushroomRenderer';
-import { Sparkles, TrendingUp, Award, Loader2, Lock, AlertTriangle, PieChart, Zap } from 'lucide-react';
+import { Sparkles, TrendingUp, Loader2, Lock, AlertTriangle, PieChart, Zap, RefreshCw } from 'lucide-react';
 import { NETWORK_CONFIG } from '../../config';
 import { TraitExtension } from '../../services/shroomService';
 import { GeneticsDisplay } from '../Mushroom/GeneticsDisplay';
@@ -8,6 +8,8 @@ import { HarvestOverlay } from '../Overlays/HarvestOverlay';
 import { AscensionCard } from '../Info/AscensionCard';
 import { useAutoSign } from '../../hooks/useAutoSign';
 import { useWalletStore } from '../../store/walletStore';
+import { AutoRollConfig, AutoRollModal } from '../Modals/AutoRollModal';
+import { SpinResult } from '../../utils/transactionParser';
 
 interface SpinInterfaceProps {
   tokenId: string;
@@ -20,6 +22,9 @@ interface SpinInterfaceProps {
   globalTotalShares: number;
   onReveal: () => Promise<void>;
   spinStage: 'idle' | 'requesting' | 'waiting_drand' | 'ready_to_reveal' | 'resolving';
+  onAutoModeChange?: (isActive: boolean) => void;
+  onSpinComplete?: () => void;
+  spinResult: SpinResult | null;
 }
 
 export const SpinInterface: React.FC<SpinInterfaceProps> = ({
@@ -32,12 +37,24 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
   isLoading,
   globalTotalShares,
   onReveal,
-  spinStage
+  spinStage,
+  onAutoModeChange,
+  onSpinComplete,
+  spinResult
 }) => {
 
   const { toggleAutoSign, isToggling } = useAutoSign();
   const { isAutoSignEnabled } = useWalletStore();
 
+  // --- Auto Roll State ---
+  const [isAutoModalOpen, setIsAutoModalOpen] = useState(false);
+  const [isAutoRolling, setIsAutoRolling] = useState(false);
+  const [autoConfig, setAutoConfig] = useState<AutoRollConfig | null>(null);
+  const [autoLogs, setAutoLogs] = useState<string[]>([]);
+  const [currentAttempt, setCurrentAttempt] = useState(0);
+
+  // Used to prevent double-firing in useEffects
+  const processingRef = useRef(false);
 
   // Calculate Totals (Volatile + Base)
   const totalCap = Number(traits.cap) + Number(traits.base_cap || 0);
@@ -119,6 +136,121 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
   };
 
   const currentCost = getDisplayCost();
+
+  useEffect(() => {
+    if (onAutoModeChange) {
+      onAutoModeChange(isAutoRolling);
+    }
+  }, [isAutoRolling, onAutoModeChange]);
+
+  useEffect(() => {
+    if (isAutoRolling && spinResult && autoConfig) {
+      const { traitTarget, newValue, oldValue } = spinResult;
+      if (traitTarget === autoConfig.targetTrait) {
+        let msg = "";
+        const diff = newValue - oldValue;
+        if (diff > 0) msg = `SUCCESS: ${traitTarget.toUpperCase()} upgraded (+${newValue})`;
+        else if (diff < 0) msg = `FAILED: ${traitTarget.toUpperCase()} downgraded (${newValue})`;
+        else msg = `NEUTRAL: ${traitTarget.toUpperCase()} remained at +${newValue}`;
+
+        addLog(msg);
+
+        if (newValue >= autoConfig.stopAtValue) {
+          addLog(`Target Reached (+${newValue}). Stopping Sequence.`);
+          setIsAutoRolling(false);
+        }
+        else {
+          if (currentAttempt + 1 >= autoConfig.maxAttempts) {
+            addLog(`Max attempts reached. Stopping.`);
+            setIsAutoRolling(false);
+          }
+        }
+
+        if (onSpinComplete) {
+          onSpinComplete();
+        }
+      }
+    }
+  }, [spinResult, isAutoRolling, autoConfig, onSpinComplete, currentAttempt]);
+
+  useEffect(() => {
+    if (!isAutoRolling || !autoConfig || spinResult) return;
+
+    const runAutoSequence = async () => {
+      // 1. Check Stop Conditions
+      const currentValue = traits[autoConfig.targetTrait];
+
+      if (currentValue >= autoConfig.stopAtValue) {
+        addLog(`Target Reached! (${currentValue} >= ${autoConfig.stopAtValue})`);
+        addLog("Sequence Complete.");
+        setIsAutoRolling(false);
+        return;
+      }
+
+      if (currentAttempt >= autoConfig.maxAttempts) {
+        addLog(`Max attempts reached (${currentAttempt}). Stopping.`);
+        setIsAutoRolling(false);
+        return;
+      }
+
+      // 2. Handle Stages
+      if (spinStage === 'idle' && !processingRef.current && !isLoading) {
+        processingRef.current = true;
+
+        addLog(`Attempt ${currentAttempt + 1}: Spinning ${autoConfig.targetTrait}...`);
+
+        try {
+          await onSpin(autoConfig.targetTrait);
+          // Note: onSpin triggers state change to 'requesting' -> 'waiting_drand'
+        } catch (e) {
+          addLog("Error executing spin. Stopping.");
+          setIsAutoRolling(false);
+        } finally {
+          processingRef.current = false;
+        }
+      }
+      else if (spinStage === 'ready_to_reveal' && !processingRef.current && !isLoading) {
+        processingRef.current = true;
+        addLog("Randomness received. Revealing...");
+
+        try {
+          await onReveal();
+          // After reveal, the trait value updates in parent. 
+          // We increment attempt counter here
+          setCurrentAttempt(prev => prev + 1);
+        } catch (e) {
+          addLog("Error revealing. Stopping.");
+          setIsAutoRolling(false);
+        } finally {
+          processingRef.current = false;
+        }
+      }
+    };
+
+    runAutoSequence();
+  }, [isAutoRolling, autoConfig, spinStage, isLoading, traits, currentAttempt, onSpin, onReveal, spinResult]); // Dependencies trigger the loop
+
+  const addLog = (msg: string) => {
+    const time = new Date().toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    setAutoLogs(prev => [...prev, `[${time}] ${msg}`]);
+  };
+
+  const handleStartAuto = (config: AutoRollConfig) => {
+    if (!isAutoSignEnabled) {
+      alert("Please enable Auto-Sign (Fast Mode) first!");
+      return;
+    }
+    setAutoConfig(config);
+    setCurrentAttempt(0);
+    setAutoLogs(['Initializing Auto-Roll Sequence...', `Target: ${config.targetTrait.toUpperCase()} >= +${config.stopAtValue}`]);
+    setIsAutoRolling(true);
+    processingRef.current = false;
+  };
+
+  const handleStopAuto = () => {
+    addLog("User requested stop.");
+    setIsAutoRolling(false);
+  };
 
   return (
 
@@ -214,32 +346,43 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
         {/* Right Column - Actions */}
         <div className="space-y-6">
 
-          <div className="flex items-center justify-between bg-black/20 p-4 rounded-2xl border border-white/5">
-            <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-full ${isAutoSignEnabled ? 'bg-green-500/20 text-green-400' : 'bg-white/5 text-textSecondary'}`}>
-                <Zap size={20} className={isAutoSignEnabled ? 'fill-current' : ''} />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-text">Fast Mode (Auto-Sign)</h4>
-                <p className="text-xs text-textSecondary">Skip wallet approval for rolls for 15 minutes</p>
-              </div>
-            </div>
+          <div className="flex items-center gap-2">
 
-            <button
-              onClick={toggleAutoSign}
-              disabled={isToggling}
-              className={`
+            <div className="flex-1 flex items-center justify-between bg-black/20 p-4 rounded-2xl border border-white/5">
+
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-full ${isAutoSignEnabled ? 'bg-green-500/20 text-green-400' : 'bg-white/5 text-textSecondary'}`}>
+                  <Zap size={20} className={isAutoSignEnabled ? 'fill-current' : ''} />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-text">Fast Mode (Auto-Sign)</h4>
+                  <p className="text-xs text-textSecondary">Skip wallet approval for rolls for 15 minutes</p>
+                </div>
+              </div>
+
+              <button
+                onClick={toggleAutoSign}
+                disabled={isToggling}
+                className={`
                 relative w-12 h-6 rounded-full transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-primary/50
                 ${isAutoSignEnabled ? 'bg-primary' : 'bg-white/10'}
                 ${isToggling ? 'opacity-50 cursor-wait' : ''}
               `}
-            >
-              <div
-                className={`
+              >
+                <div
+                  className={`
                   absolute top-1 left-1 bg-white w-4 h-4 rounded-full shadow-sm transition-transform duration-300
                   ${isAutoSignEnabled ? 'translate-x-6' : 'translate-x-0'}
                 `}
-              />
+                />
+              </button>
+            </div>
+            <button
+              onClick={() => setIsAutoModalOpen(true)}
+              className="h-full bg-surface border border-border hover:border-primary/50 text-textSecondary hover:text-white p-4 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all min-w-[100px]"
+            >
+              <RefreshCw size={24} className={isAutoRolling ? "animate-spin text-primary" : ""} />
+              <span className="text-xs font-bold uppercase">Auto Roll</span>
             </button>
           </div>
           {/* Spin Actions */}
@@ -446,6 +589,16 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
         isOpen={showHarvest}
         onClose={() => setShowHarvest(false)}
         amount={harvestedAmount}
+      />
+      <AutoRollModal
+        isOpen={isAutoModalOpen}
+        onClose={() => setIsAutoModalOpen(false)}
+        onStart={handleStartAuto}
+        onStop={handleStopAuto}
+        isRunning={isAutoRolling}
+        currentAttempt={currentAttempt}
+        logs={autoLogs}
+        traitValue={autoConfig ? traits[autoConfig.targetTrait] : 0}
       />
     </>
   );

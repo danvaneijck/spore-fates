@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { DRAND_HASH, RewardInfo, shroomService, TraitExtension } from "../services/shroomService";
 import { findAttribute, parseSpinResult, SpinResult } from "../utils/transactionParser";
-import { Dna, FlaskConical, Sprout } from "lucide-react";
+import { Dna, FlaskConical } from "lucide-react";
 import { SpinInterface } from "./Mutations/SpinInterface";
 import { SpinWheel } from "./Mutations/SpinWheel";
 import { BreedingInterface } from "./Breeding/BreedingInterface";
@@ -39,6 +39,8 @@ const GameContainer = () => {
     // Spin wheel state
     const [spinResult, setSpinResult] = useState<SpinResult | null>(null);
     const [showWheel, setShowWheel] = useState(false);
+    const [isAutoMode, setIsAutoMode] = useState(false);
+
     const [pendingTraitUpdate, setPendingTraitUpdate] = useState<TraitExtension | null>(null);
 
     const handleResolve = useCallback(async (round: number) => {
@@ -50,11 +52,16 @@ const GameContainer = () => {
             const parsed = parseSpinResult(result);
             if (parsed) {
                 setSpinResult(parsed);
-                setShowWheel(true);
+                if (!isAutoMode) {
+                    setShowWheel(true);
+                }
+                else {
+                    triggerRefresh()
+                }
             }
         }
         setSpinStage('idle');
-    }, [address, executeTransaction, tokenId]);
+    }, [address, executeTransaction, isAutoMode, tokenId, triggerRefresh]);
 
     const manualResolve = async () => {
         if (!pendingRound) return;
@@ -79,14 +86,15 @@ const GameContainer = () => {
         if (!address || !tokenId) return;
 
         const fetchData = async () => {
-            // 1. Fetch Traits
             const traitData = await shroomService.getShroomTraits(tokenId);
             if (traitData) {
-                if (!showWheel) setTraits(traitData);
-                else setPendingTraitUpdate(traitData);
+                if (showWheel) {
+                    setPendingTraitUpdate(traitData);
+                } else {
+                    setTraits(traitData);
+                }
             }
 
-            // 2. Fetch Rewards
             const rewards = await shroomService.getPendingRewards(tokenId);
             setRewardInfo(rewards);
 
@@ -97,7 +105,7 @@ const GameContainer = () => {
         };
 
         fetchData();
-    }, [address, tokenId, refreshTrigger, showWheel]);
+    }, [address, tokenId, refreshTrigger, showWheel, isAutoMode]);
 
     // RESUME STATE ON LOAD
     useEffect(() => {
@@ -149,13 +157,13 @@ const GameContainer = () => {
     const onHarvest = async () => {
         if (!tokenId) return;
         const msg = shroomService.makeHarvestMsg(address, tokenId);
-        return await executeTransaction(msg, 'harvest');
+        return await executeTransaction(msg, 'harvest', true);
     };
 
     const onAscend = async () => {
         if (!tokenId) return;
         const msg = shroomService.makeAscendMsg(address, tokenId);
-        return await executeTransaction(msg, 'ascend');
+        return await executeTransaction(msg, 'ascend', true);
     };
 
     const handleWheelComplete = () => {
@@ -166,6 +174,14 @@ const GameContainer = () => {
             setPendingTraitUpdate(null);
         }
         triggerRefresh();
+    };
+
+    const handleAutoRollComplete = () => {
+        setSpinResult(null);
+        if (pendingTraitUpdate) {
+            setTraits(pendingTraitUpdate);
+            setPendingTraitUpdate(null);
+        }
     };
 
     if (!tokenId) {
@@ -217,6 +233,9 @@ const GameContainer = () => {
                         rewardInfo={rewardInfo}
                         isLoading={isLoading}
                         globalTotalShares={parseFloat(globalShares)}
+                        onAutoModeChange={setIsAutoMode}
+                        onSpinComplete={handleAutoRollComplete}
+                        spinResult={spinResult}
                     />
                 </>
             ) : (
@@ -229,7 +248,7 @@ const GameContainer = () => {
                 />
             )}
 
-            {spinResult && (
+            {spinResult && !isAutoMode && (
                 <SpinWheel
                     isSpinning={showWheel}
                     oldValue={spinResult.oldValue}

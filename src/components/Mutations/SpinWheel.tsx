@@ -20,16 +20,25 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
   const [rotation, setRotation] = useState(0);
   const [showResult, setShowResult] = useState(false);
   const [wheelSegments, setWheelSegments] = useState<number[]>([]);
+  const [transitionStyle, setTransitionStyle] = useState('none');
 
   const wheelRef = useRef<HTMLDivElement>(null);
 
-  // -- Logic remains the same (Physics & Segments) --
+  // -- Skip Animation Handler --
+  const handleSkip = () => {
+    // 1. Kill the transition immediately to snap visual rotation to the target
+    setTransitionStyle('none');
+    // 2. Show the result immediately
+    setShowResult(true);
+  };
+
   useEffect(() => {
     if (isSpinning) {
       setShowResult(false);
+
+      // -- 1. Logic --
       const standardSuccess = oldValue === -1 ? 1 : Math.min(oldValue + 1, 3);
       const standardFail = oldValue === 1 ? -1 : Math.max(oldValue - 1, -3);
-
       const isWin = newValue > oldValue || (oldValue === -1 && newValue === 1);
 
       const newSegments = Array(8).fill(0).map((_, i) => {
@@ -42,18 +51,25 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
       newSegments[selectedIndex] = newValue;
       setWheelSegments(newSegments);
 
+      // -- 2. Physics --
       const segmentAngle = 360 / 8;
       const centerOffset = segmentAngle / 2;
       const targetAngle = (selectedIndex * segmentAngle) + centerOffset;
-      const fuzz = (Math.random() * 36) - 18;
-      const extraSpins = Math.floor(Math.random() * 3) + 4;
+
+      // Full range fuzz (44 degrees) allows landing on the very edge
+      const fuzz = (Math.random() * 44) - 22;
+      const extraSpins = Math.floor(Math.random() * 7) + 8;
+      const randomDuration = 3000 + Math.random() * 2000;
 
       const finalRotation = -((extraSpins * 360) + targetAngle + fuzz);
+
+      setTransitionStyle(`transform ${randomDuration}ms cubic-bezier(0.2, 0, 0, 1)`);
 
       const handleTransitionEnd = (e: TransitionEvent) => {
         if (e.propertyName === 'transform' && e.target === wheelRef.current) {
           setShowResult(true);
-          wheelRef.current?.removeEventListener('transitionend', handleTransitionEnd);
+          // Note: We don't need to manually remove listener here if we use { once: true } 
+          // or rely on the cleanup function, but manual removal is safe.
         }
       };
 
@@ -61,8 +77,11 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
         wheelRef.current.addEventListener('transitionend', handleTransitionEnd);
       }
 
+      // Trigger animation
       requestAnimationFrame(() => {
-        setRotation(finalRotation);
+        requestAnimationFrame(() => {
+          setRotation(finalRotation);
+        });
       });
 
       return () => {
@@ -70,13 +89,14 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
           wheelRef.current.removeEventListener('transitionend', handleTransitionEnd);
         }
       };
+    } else {
+      setTransitionStyle('none');
     }
   }, [isSpinning, newValue, oldValue]);
 
   if (!isSpinning && !showResult) return null;
 
-  // -- Themed Visual Helpers --
-
+  // -- Theme Helpers --
   const getTraitTheme = () => {
     switch (traitTarget) {
       case 'cap': return { color: '#ef4444', label: 'Cap Mutation', glow: 'shadow-red-500/50' };
@@ -92,16 +112,14 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
   const createSegmentPath = (index: number) => {
     const startAngle = ((index * segmentAngle) - 90) * (Math.PI / 180);
     const endAngle = (((index + 1) * segmentAngle) - 90) * (Math.PI / 180);
-    const radius = 128; // Outer radius
-    const innerRadius = 20; // Cut out the middle for the hub
+    const radius = 128;
+    const innerRadius = 20;
 
-    // Outer Arc
     const x1 = 128 + radius * Math.cos(startAngle);
     const y1 = 128 + radius * Math.sin(startAngle);
     const x2 = 128 + radius * Math.cos(endAngle);
     const y2 = 128 + radius * Math.sin(endAngle);
 
-    // Inner Arc
     const x3 = 128 + innerRadius * Math.cos(endAngle);
     const y3 = 128 + innerRadius * Math.sin(endAngle);
     const x4 = 128 + innerRadius * Math.cos(startAngle);
@@ -112,7 +130,6 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
 
   const getSegmentFill = (index: number, val: number) => {
     const isSuccessSlot = index % 2 !== 0;
-    // We return IDs for gradients defined in <defs>
     if (isSuccessSlot) return 'url(#grad-success)';
     if (!isSuccessSlot && val >= oldValue) return 'url(#grad-protected)';
     return 'url(#grad-fail)';
@@ -122,16 +139,30 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md"
-      onClick={(e) => { if (e.target === e.currentTarget && showResult) onComplete(); }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md cursor-pointer"
+      onClick={(e) => {
+        // Global click handler for the overlay
+        if (showResult) {
+          // If result is already showing, only close if clicking the background 
+          // (prevents closing when trying to click/copy something on the card)
+          if (e.target === e.currentTarget) {
+            onComplete();
+          }
+        } else {
+          // If spinning and result is NOT shown yet, click = SKIP
+          handleSkip();
+        }
+      }}
     >
-      <div className="relative flex flex-col items-center">
+      <div className="relative flex flex-col items-center pointer-events-none">
+        {/* pointer-events-none on wrapper ensures clicks pass through to the main div for skipping, 
+            but we re-enable pointer-events for buttons/cards below */}
 
         {/* Close Button */}
         {showResult && (
           <button
             onClick={onComplete}
-            className="absolute -top-16 right-0 p-3 bg-white/10 hover:bg-white/20 rounded-full border border-white/20 transition-colors z-50 backdrop-blur-sm"
+            className="absolute -top-16 right-0 p-3 bg-white/10 hover:bg-white/20 rounded-full border border-white/20 transition-colors z-50 backdrop-blur-sm pointer-events-auto"
           >
             <X size={24} className="text-white" />
           </button>
@@ -154,22 +185,19 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
             className="w-full h-full rounded-full overflow-hidden relative"
             style={{
               transform: `rotate(${rotation}deg)`,
-              transition: isSpinning ? 'transform 3500ms cubic-bezier(0.15, 0.85, 0.15, 1)' : 'none',
+              transition: isSpinning ? transitionStyle : 'none',
             }}
           >
             <svg className="absolute inset-0 w-full h-full drop-shadow-2xl" viewBox="0 0 256 256">
               <defs>
-                {/* Bioluminescent Green */}
                 <radialGradient id="grad-success" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
                   <stop offset="30%" stopColor="#34d399" />
                   <stop offset="100%" stopColor="#065f46" />
                 </radialGradient>
-                {/* Toxic Red/Purple */}
                 <radialGradient id="grad-fail" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
                   <stop offset="30%" stopColor="#f87171" />
                   <stop offset="100%" stopColor="#7f1d1d" />
                 </radialGradient>
-                {/* Golden Spore */}
                 <radialGradient id="grad-protected" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
                   <stop offset="30%" stopColor="#fbbf24" />
                   <stop offset="100%" stopColor="#b45309" />
@@ -188,7 +216,7 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
               ))}
             </svg>
 
-            {/* Center Hub (Nucleus) */}
+            {/* Center Hub */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div
                 className="w-20 h-20 rounded-full border-4 border-black/50 flex items-center justify-center shadow-[inset_0_0_20px_rgba(0,0,0,0.5)] z-20"
@@ -207,7 +235,7 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
 
         {/* Result Card */}
         {showResult && (
-          <div className="absolute mt-12 z-40">
+          <div className="absolute mt-12 z-40 pointer-events-auto">
             <div className={`
               bg-[#1a1a1a]/90 backdrop-blur-xl rounded-3xl p-8 
               border-2 shadow-[0_0_50px_rgba(0,0,0,0.5)] 
@@ -236,7 +264,6 @@ export const SpinWheel: React.FC<SpinWheelProps> = ({
                   </div>
 
                   <div className="flex flex-col items-center relative">
-                    {/* Glowing background for new value */}
                     <div className="absolute inset-0 bg-white/5 blur-lg rounded-full" />
                     <span className="text-[10px] uppercase tracking-wider text-white/40 mb-1 relative z-10">Now</span>
                     <span className={`text-5xl font-mono font-black relative z-10 drop-shadow-lg ${change > 0 ? 'text-emerald-400' : change < 0 ? 'text-red-400' : 'text-amber-400'}`}>

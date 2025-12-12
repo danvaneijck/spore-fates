@@ -31,7 +31,6 @@ export function parseSpinResult(
     txResponse: TransactionResponse
 ): SpinResult | null {
     try {
-        console.log(txResponse);
         // Find the wasm event with spin data
         const wasmEvent = txResponse.events.find(
             (event) =>

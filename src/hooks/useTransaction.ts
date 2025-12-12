@@ -3,23 +3,30 @@ import { MsgBroadcaster } from "@injectivelabs/wallet-core";
 import { getNetworkEndpoints, Network } from "@injectivelabs/networks";
 import { NETWORK_CONFIG } from "../config";
 import { showTransactionToast } from "../utils/toast";
-import { useWalletStore } from "../store/walletStore"; // The store we made in the previous step
-import { walletStrategy } from "../components/Wallet/WalletConnect"; // Import your strategy instance
+import { useWalletStore } from "../store/walletStore";
+import { walletStrategy } from "../components/Wallet/WalletConnect";
 import { useGameStore } from "../store/gameStore";
 
 export const useTransaction = () => {
     const [isLoading, setIsLoading] = useState(false);
-    const { connectedWallet } = useWalletStore();
+
+    const { connectedWallet, isAutoSignEnabled, setAutoSignEnabled } =
+        useWalletStore();
     const { triggerRefresh } = useGameStore();
 
     const executeTransaction = useCallback(
-        async (msg: any, actionType: string = "transaction") => {
+        async (
+            msg: any | any[],
+            actionType: string = "transaction",
+            forceManual: boolean = false
+        ) => {
             if (!connectedWallet) {
                 showTransactionToast.error("Please connect your wallet first.");
                 return null;
             }
 
             setIsLoading(true);
+
             const toastId = showTransactionToast.loading(
                 actionType === "spin"
                     ? "Spinning the wheel..."
@@ -35,30 +42,78 @@ export const useTransaction = () => {
             );
 
             try {
-                const network =
-                    NETWORK_CONFIG.network === "mainnet"
-                        ? Network.Mainnet
-                        : Network.Testnet;
-                const endpoints = getNetworkEndpoints(network);
+                let txHash = "";
+                let result = null;
 
-                console.log(network, endpoints);
+                // --- BRANCH 1: AUTO-SIGN (Via API) ---
+                if (isAutoSignEnabled && !forceManual) {
+                    const msgsArray = Array.isArray(msg) ? msg : [msg];
+                    const jsonMsgs = msgsArray.map((m: any) => ({
+                        contractAddress: m.params.contractAddress,
+                        msg: m.params.msg,
+                        sender: m.params.sender,
+                        funds: m.params.funds,
+                    }));
 
-                const broadcaster = new MsgBroadcaster({
-                    walletStrategy: walletStrategy,
-                    network,
-                    endpoints,
-                    simulateTx: true,
-                    gasBufferCoefficient: 1.2,
-                });
+                    const response = await fetch("/api/auto-sign", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            msgs: jsonMsgs, // Sends clean JSON objects
+                            network: NETWORK_CONFIG.network,
+                        }),
+                    });
 
-                const result = await broadcaster.broadcastV2({
-                    msgs: msg,
-                    injectiveAddress: connectedWallet,
-                });
+                    const data = await response.json();
 
+                    if (
+                        !response.ok &&
+                        data.error.includes("failed to get grant")
+                    ) {
+                        console.log("no grant");
+                        setAutoSignEnabled(false);
+                        throw new Error("Auto-sign grant expired");
+                    }
+                    if (!response.ok) {
+                        throw new Error(
+                            data.error || "Auto-sign request failed"
+                        );
+                    }
+
+                    txHash = data.txHash;
+                    result = data; // Normalize result structure if needed
+                }
+
+                // --- BRANCH 2: MANUAL SIGN (Client Side) ---
+                else {
+                    const network =
+                        NETWORK_CONFIG.network === "mainnet"
+                            ? Network.Mainnet
+                            : Network.Testnet;
+                    const endpoints = getNetworkEndpoints(network);
+
+                    const broadcaster = new MsgBroadcaster({
+                        walletStrategy: walletStrategy,
+                        network,
+                        endpoints,
+                        simulateTx: true,
+                        gasBufferCoefficient: 1.2,
+                    });
+
+                    // Standard broadcast
+                    const response = await broadcaster.broadcastV2({
+                        msgs: msg,
+                        injectiveAddress: connectedWallet,
+                    });
+
+                    txHash = response.txHash;
+                    result = response;
+                }
+
+                // 3. Success Handling (Preserved Logic)
                 showTransactionToast.dismiss(toastId);
                 showTransactionToast.success(
-                    result.txHash,
+                    txHash,
                     actionType === "spin"
                         ? "Spin successful!"
                         : actionType === "harvest"
@@ -73,7 +128,7 @@ export const useTransaction = () => {
                 );
 
                 // Wait for Indexer
-                await new Promise((resolve) => setTimeout(resolve, 3000));
+                await new Promise((resolve) => setTimeout(resolve, 1000));
 
                 // Trigger Global Refresh
                 triggerRefresh();
@@ -83,7 +138,7 @@ export const useTransaction = () => {
                 console.error("Transaction Failed:", e);
                 showTransactionToast.dismiss(toastId);
 
-                // Better error parsing can go here
+                // Error parsing
                 const errorMessage =
                     e?.originalMessage || e?.message || "Transaction failed";
                 showTransactionToast.error(errorMessage);
@@ -93,7 +148,7 @@ export const useTransaction = () => {
                 setIsLoading(false);
             }
         },
-        [connectedWallet, triggerRefresh]
+        [connectedWallet, isAutoSignEnabled, triggerRefresh, setAutoSignEnabled]
     );
 
     return { executeTransaction, isLoading };

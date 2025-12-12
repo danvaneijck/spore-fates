@@ -51,7 +51,7 @@ export const BreedingInterface: React.FC<Props> = ({
         if (!isApproved) {
             // Step A: Approve
             const approveMsg = shroomService.makeApproveAllMsg(address, NETWORK_CONFIG.gameControllerAddress);
-            const res = await executeTransaction(approveMsg, 'approve');
+            const res = await executeTransaction(approveMsg, 'approve', true);
             if (!res) return; // Stop if failed
         }
 
@@ -65,7 +65,7 @@ export const BreedingInterface: React.FC<Props> = ({
 
         // 1. Execute Splice
         const msg = shroomService.makeSpliceMsg(address, parentAId, parentBId);
-        const result = await executeTransaction(msg, 'splice');
+        const result = await executeTransaction(msg, 'splice', true);
 
         if (result) {
             // 2. Find Child ID from logs

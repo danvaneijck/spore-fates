@@ -120,7 +120,7 @@ export const AutoRollModal: React.FC<AutoRollModalProps> = ({
                             <span>Sequence Log</span>
                             <span>Attempt: <span className="text-white">{currentAttempt}</span> / {maxAttempts}</span>
                         </div>
-                        <div className="flex-1 overflow-y-auto space-y-2 font-mono text-xs pr-2 custom-scrollbar">
+                        <div className="flex-1 overflow-y-auto space-y-2 font-mono text-xs pr-2 dark-scrollbar">
                             {logs.length === 0 && <span className="text-white/20 italic">Ready to initiate sequence...</span>}
                             {logs.map((log, i) => (
                                 <div key={i} className="flex gap-2">

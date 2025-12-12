@@ -1550,6 +1550,7 @@ dependencies = [
 name = "spore-fates"
 version = "1.0.0"
 dependencies = [
+ "base64 0.21.7",
  "cosmwasm-schema 2.2.2",
  "cosmwasm-std 2.2.2",
  "cw2 2.0.0",

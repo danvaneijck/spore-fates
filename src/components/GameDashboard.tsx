@@ -42,7 +42,7 @@ const GameDashboard = () => {
     const handleMint = async (priceRaw: string) => {
         if (!address) return;
         const msg = shroomService.makeMintMsg(address, priceRaw);
-        const result = await executeTransaction(msg, 'mint');
+        const result = await executeTransaction(msg, 'mint', true);
 
         if (result) {
             const tokenId = findAttribute(result, "wasm", 'token_id');

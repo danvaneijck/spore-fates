@@ -149,13 +149,13 @@ const GameContainer = () => {
     const onHarvest = async () => {
         if (!tokenId) return;
         const msg = shroomService.makeHarvestMsg(address, tokenId);
-        return await executeTransaction(msg, 'harvest');
+        return await executeTransaction(msg, 'harvest', true);
     };
 
     const onAscend = async () => {
         if (!tokenId) return;
         const msg = shroomService.makeAscendMsg(address, tokenId);
-        return await executeTransaction(msg, 'ascend');
+        return await executeTransaction(msg, 'ascend', true);
     };
 
     const handleWheelComplete = () => {

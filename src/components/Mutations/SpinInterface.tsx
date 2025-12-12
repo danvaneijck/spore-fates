@@ -6,6 +6,8 @@ import { TraitExtension } from '../../services/shroomService';
 import { GeneticsDisplay } from '../Mushroom/GeneticsDisplay';
 import { HarvestOverlay } from '../Overlays/HarvestOverlay';
 import { AscensionCard } from '../Info/AscensionCard';
+import { useAutoSign } from '../../hooks/useAutoSign';
+import { useWalletStore } from '../../store/walletStore';
 
 interface SpinInterfaceProps {
   tokenId: string;
@@ -32,6 +34,10 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
   onReveal,
   spinStage
 }) => {
+
+  const { toggleAutoSign, isToggling } = useAutoSign();
+  const { isAutoSignEnabled } = useWalletStore();
+
 
   // Calculate Totals (Volatile + Base)
   const totalCap = Number(traits.cap) + Number(traits.base_cap || 0);
@@ -207,6 +213,35 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
 
         {/* Right Column - Actions */}
         <div className="space-y-6">
+
+          <div className="flex items-center justify-between bg-black/20 p-4 rounded-2xl border border-white/5">
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-full ${isAutoSignEnabled ? 'bg-green-500/20 text-green-400' : 'bg-white/5 text-textSecondary'}`}>
+                <Zap size={20} className={isAutoSignEnabled ? 'fill-current' : ''} />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-text">Fast Mode (Auto-Sign)</h4>
+                <p className="text-xs text-textSecondary">Skip wallet approval for rolls</p>
+              </div>
+            </div>
+
+            <button
+              onClick={toggleAutoSign}
+              disabled={isToggling}
+              className={`
+                relative w-12 h-6 rounded-full transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-primary/50
+                ${isAutoSignEnabled ? 'bg-primary' : 'bg-white/10'}
+                ${isToggling ? 'opacity-50 cursor-wait' : ''}
+              `}
+            >
+              <div
+                className={`
+                  absolute top-1 left-1 bg-white w-4 h-4 rounded-full shadow-sm transition-transform duration-300
+                  ${isAutoSignEnabled ? 'translate-x-6' : 'translate-x-0'}
+                `}
+              />
+            </button>
+          </div>
           {/* Spin Actions */}
           <div className="bg-surface rounded-3xl p-6 border border-border">
             <div className="flex items-center gap-2 mb-4">

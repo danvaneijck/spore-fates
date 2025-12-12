@@ -17,7 +17,7 @@ export default defineConfig({
         vercelApi(),
     ],
     define: {
-        global: "globalThis",
+        global: "window",
     },
     optimizeDeps: {
         exclude: ["lucide-react"],

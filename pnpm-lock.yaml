@@ -65,6 +65,9 @@ importers:
       '@injectivelabs/wallet-wallet-connect':
         specifier: 1.16.38
         version: 1.16.38(@types/react@18.3.27)(bufferutil@4.0.9)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@3.25.76)
+      buffer:
+        specifier: ^6.0.3
+        version: 6.0.3
       canvas-confetti:
         specifier: ^1.9.4
         version: 1.9.4

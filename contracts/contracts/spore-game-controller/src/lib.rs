@@ -18,12 +18,12 @@ pub mod state;
 use crate::error::ContractError;
 use crate::msg::{
     BeaconResponse, EcosystemMetricsResponse, ExecuteMsg, GameStatsResponse, InstantiateMsg,
-    MintPriceResponse, OracleQueryMsg, PendingRewardsResponse, PendingSpinResponse,
-    PlayerProfileResponse, QueryMsg, TraitTarget,
+    LeaderboardResponse, MintPriceResponse, OracleQueryMsg, PendingRewardsResponse,
+    PendingSpinResponse, PlayerProfileResponse, QueryMsg, TraitTarget,
 };
 use crate::state::{
-    GameConfig, GameStats, GlobalState, PendingSpin, TokenInfo, BIOMASS, CONFIG, GAME_STATS,
-    GLOBAL_STATE, MINT_COUNTER, PENDING_SPINS, TOKEN_INFO,
+    GameConfig, GameStats, GlobalState, LeaderboardEntry, PendingSpin, TokenInfo, BIOMASS, CONFIG,
+    GAME_STATS, GLOBAL_STATE, LEADERBOARD, MINT_COUNTER, PENDING_SPINS, TOKEN_INFO,
 };
 
 const CONTRACT_NAME: &str = "crates.io:spore-game-controller";
@@ -120,6 +120,7 @@ pub fn instantiate(
     CONFIG.save(deps.storage, &config)?;
     GLOBAL_STATE.save(deps.storage, &global_state)?;
     BIOMASS.save(deps.storage, &biomass)?;
+    LEADERBOARD.save(deps.storage, &vec![])?;
 
     Ok(Response::new()
         .add_attribute("action", "instantiate")
@@ -148,6 +149,8 @@ pub fn execute(
         ExecuteMsg::Harvest { token_id } => execute_harvest(deps, env, info, token_id),
         ExecuteMsg::Ascend { token_id } => execute_ascend(deps, env, info, token_id),
         ExecuteMsg::Mint {} => execute_mint(deps, env, info),
+        ExecuteMsg::Recycle { token_id } => execute_recycle(deps, env, info, token_id),
+
         ExecuteMsg::Splice {
             parent_1_id,
             parent_2_id,
@@ -194,13 +197,14 @@ fn get_randomness(env: &Env, _deps: &DepsMut, nonce: u64) -> Result<u8, Contract
     Ok(result[0])
 }
 
-fn execute_mint(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, ContractError> {
+fn execute_mint(mut deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut stats = GAME_STATS.load(deps.storage)?; // Load stats to get total_minted count
 
     // 1. Calculate Bonding Curve Price
-    // Price = Base + (TotalMinted * Increment)
-    let increment_total = config.mint_cost_increment * Uint128::from(stats.total_minted);
+    let current_supply = stats.total_minted.saturating_sub(stats.total_burned);
+    // Price = Base + (CurrentSupply * Increment)
+    let increment_total = config.mint_cost_increment * Uint128::from(current_supply);
     let current_price = config.mint_cost + increment_total;
 
     // 2. Validate Payment
@@ -282,6 +286,8 @@ fn execute_mint(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, 
     };
     TOKEN_INFO.save(deps.storage, &token_id, &token_info)?;
 
+    update_leaderboard(&mut deps, token_id.clone(), initial_shares)?;
+
     // 8. Execute Mint via CW721
     let mint_msg = WasmMsg::Execute {
         contract_addr: config.cw721_addr.to_string(),
@@ -296,6 +302,7 @@ fn execute_mint(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, 
 
     // Update Stats
     stats.total_minted += 1;
+    stats.total_mint_volume += current_price;
     GAME_STATS.save(deps.storage, &stats)?;
 
     Ok(Response::new()
@@ -311,20 +318,18 @@ fn calculate_shares(traits: &TraitExtension) -> Uint128 {
     let cap_score = (traits.cap as i128) + (traits.base_cap as i128);
     let stem_score = (traits.stem as i128) + (traits.base_stem as i128);
     let spores_score = (traits.spores as i128) + (traits.base_spores as i128);
-
-    // Ensure min power is 1 to avoid 0 shares
     let raw_power = (cap_score + stem_score + spores_score).max(1);
 
-    // 2. QUADRATIC CURVE: Power^2
-    // This makes a Power 10 mushroom worth 4x more than a Power 5 mushroom (100 vs 25)
-    // instead of just 2x more. This massively disincentivizes hoarding low-tier shrooms.
+    // 2. Quadratic Curve
     let quadratic_shares = raw_power.pow(2) as u128;
 
     // 3. Substrate Multiplier
-    let substrate_multiplier = 1 + (traits.substrate as u128);
+    let multiplier = match traits.substrate {
+        0..=4 => 1 + (traits.substrate as u128), // 1x, 2x, 3x, 4x, 5x
+        _ => 8,                                  // Level 5 is 8x
+    };
 
-    // Final Shares
-    Uint128::from(quadratic_shares * substrate_multiplier)
+    Uint128::from(quadratic_shares * multiplier)
 }
 
 fn execute_spin(
@@ -364,16 +369,17 @@ fn execute_spin(
     let traits = parse_traits(nft_info.extension);
 
     // 2. Calculate Cost
-    let substrate_multiplier: u128 = match traits.substrate {
+    let cost_multiplier: u128 = match traits.substrate {
         0 => 1,
         1 => 2,
         2 => 3,
         3 => 5,
-        _ => 10,
+        4 => 10,
+        _ => 20, // Level 5 costs 20x to spin (High Risk/Reward)
     };
     let required_payment = config
         .spin_cost
-        .checked_mul(Uint128::from(substrate_multiplier))?;
+        .checked_mul(Uint128::from(cost_multiplier))?;
 
     // 3. Take Payment
     let payment = info
@@ -400,6 +406,10 @@ fn execute_spin(
     };
     PENDING_SPINS.save(deps.storage, &token_id, &pending)?;
 
+    let mut stats = GAME_STATS.load(deps.storage)?;
+    stats.total_spin_volume += required_payment;
+    GAME_STATS.save(deps.storage, &stats)?;
+
     // We do NOT distribute rewards yet. We hold the funds in the contract until resolution.
     // If we distributed now, and the spin failed/timeout, we couldn't refund easily.
 
@@ -410,7 +420,7 @@ fn execute_spin(
 }
 
 fn execute_resolve_spin(
-    deps: DepsMut,
+    mut deps: DepsMut,
     _env: Env,
     _info: MessageInfo, // Anyone can call this (Public Keeper)
     token_id: String,
@@ -448,8 +458,6 @@ fn execute_resolve_spin(
     )?;
     let mut traits = parse_traits(nft_info.extension);
 
-    // 4. --- GAME LOGIC (Copied & Adapted from previous execute_spin) ---
-
     // A. Update Pending Rewards (Accumulate)
     if !token_info.current_shares.is_zero() && !global_state.total_shares.is_zero() {
         let accrued = token_info
@@ -479,7 +487,16 @@ fn execute_resolve_spin(
         }
     } else {
         // Protection Logic
-        if current_base >= 10 || (current_val == 1 && traits.substrate >= 2) {
+        let primordial_count = count_primordial(&traits.genes);
+        let has_stability = primordial_count >= 3;
+
+        // Protection Logic
+        if has_stability {
+            // Do nothing on failure (Stable)
+            current_val
+        }
+        // Existing protections (Base 10 or Substrate 2)
+        else if current_base >= 10 || (current_val == 1 && traits.substrate >= 2) {
             current_val
         } else if current_val == 1 {
             -1
@@ -527,6 +544,8 @@ fn execute_resolve_spin(
     GLOBAL_STATE.save(deps.storage, &global_state)?;
     TOKEN_INFO.save(deps.storage, &token_id, &token_info)?;
 
+    update_leaderboard(&mut deps, token_id.clone(), new_shares)?;
+
     // Increment Stats
     let mut stats = GAME_STATS.load(deps.storage)?;
     stats.total_spins += 1;
@@ -563,7 +582,7 @@ fn execute_resolve_spin(
 }
 
 fn execute_harvest(
-    deps: DepsMut,
+    mut deps: DepsMut,
     _env: Env,
     info: MessageInfo,
     token_id: String,
@@ -660,6 +679,17 @@ fn execute_harvest(
         );
     }
 
+    let mut stats = GAME_STATS.load(deps.storage)?;
+    stats.total_rewards_distributed += payout_amount;
+
+    stats.total_harvests += 1;
+
+    if !forfeited_amount.is_zero() {
+        stats.total_rewards_recycled += forfeited_amount;
+    }
+
+    GAME_STATS.save(deps.storage, &stats)?;
+
     // 6. Reset Volatile Stats (Harvest Mechanic)
     let substrate = traits.substrate;
     traits.cap = 0;
@@ -701,6 +731,8 @@ fn execute_harvest(
     GLOBAL_STATE.save(deps.storage, &global_state)?;
     TOKEN_INFO.save(deps.storage, &token_id, &token_info)?;
 
+    update_leaderboard(&mut deps, token_id.clone(), new_shares)?;
+
     // 9. Update NFT
     messages.push(
         WasmMsg::Execute {
@@ -724,7 +756,7 @@ fn execute_harvest(
 }
 
 fn execute_ascend(
-    deps: DepsMut,
+    mut deps: DepsMut,
     env: Env,
     info: MessageInfo,
     token_id: String,
@@ -811,6 +843,14 @@ fn execute_ascend(
     GLOBAL_STATE.save(deps.storage, &global_state)?;
     TOKEN_INFO.save(deps.storage, &token_id, &token_info)?;
 
+    let mut stats = GAME_STATS.load(deps.storage)?;
+    stats.total_ascensions += 1;
+    stats.total_rewards_recycled += burned_amount;
+
+    GAME_STATS.save(deps.storage, &stats)?;
+
+    update_leaderboard(&mut deps, token_id.clone(), new_shares)?;
+
     let update_msg = WasmMsg::Execute {
         contract_addr: config.cw721_addr.to_string(),
         msg: to_json_binary(&spore_fates::cw721::ExecuteMsg::UpdateTraits {
@@ -829,7 +869,7 @@ fn execute_ascend(
 }
 
 fn execute_splice(
-    deps: DepsMut,
+    mut deps: DepsMut,
     env: Env,
     info: MessageInfo,
     parent_1_id: String,
@@ -882,6 +922,9 @@ fn execute_splice(
     TOKEN_INFO.remove(deps.storage, &parent_1_id);
     TOKEN_INFO.remove(deps.storage, &parent_2_id);
 
+    remove_from_leaderboard(&mut deps, &parent_1_id)?;
+    remove_from_leaderboard(&mut deps, &parent_2_id)?;
+
     // --- NEW: RECYCLE TO SURVIVORS ---
     if !total_forfeited.is_zero() && !global_state.total_shares.is_zero() {
         let recycle_per_share = total_forfeited.checked_div(global_state.total_shares)?;
@@ -923,12 +966,31 @@ fn execute_splice(
         }
     }
 
+    let sum_substrate = parent_1_traits.substrate + parent_2_traits.substrate;
+    let mut inherited_substrate = sum_substrate / 2;
+
+    // 2. Synergy Bonus (Chance to upgrade if parents are equal)
+    let mutation_byte = hash[8];
+
+    // If parents are same level and > 0, 20% chance to upgrade
+    if parent_1_traits.substrate > 0 && parent_1_traits.substrate == parent_2_traits.substrate {
+        // 20% chance (approx 51/255)
+        if mutation_byte < 51 {
+            inherited_substrate += 1;
+        }
+    }
+
+    // Cap at 4 (Mycelial Network)
+    if inherited_substrate > 5 {
+        inherited_substrate = 5;
+    }
+
     // 5. Create Child & Stats
     let mut child_traits = TraitExtension {
         cap: 0,
         stem: 0,
         spores: 0,
-        substrate: 0,
+        substrate: inherited_substrate,
         genes: child_genes,
         base_cap: 0,
         base_stem: 0,
@@ -946,8 +1008,9 @@ fn execute_splice(
     // Update Stats (Burn count)
     let mut game_stats = GAME_STATS.load(deps.storage)?;
     game_stats.total_burned += 2;
-    game_stats.total_minted += 1; // Technically 1 mint event
-                                  // Optional: You could track "Total Recycled" here too for game stats
+    game_stats.total_minted += 1;
+    game_stats.total_splices += 1;
+    game_stats.total_rewards_recycled += total_forfeited;
     GAME_STATS.save(deps.storage, &game_stats)?;
 
     // 8. Mint Child
@@ -964,6 +1027,8 @@ fn execute_splice(
         pending_rewards: Uint128::zero(),
     };
     TOKEN_INFO.save(deps.storage, &child_id, &child_info)?;
+
+    update_leaderboard(&mut deps, child_id.clone(), child_shares)?;
 
     // Messages
     let burn_msg_1 = WasmMsg::Execute {
@@ -1000,6 +1065,53 @@ fn execute_splice(
         .add_attribute("parent_2", parent_2_id)
         .add_attribute("child_id", child_id)
         .add_attribute("recycled_amount", total_forfeited))
+}
+
+fn execute_recycle(
+    mut deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    token_id: String,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+
+    // 1. Verify Ownership & Load Traits
+    let traits = load_and_verify_nft(&deps, &config.cw721_addr, &token_id, &info.sender)?;
+
+    // 2. Remove from Game State
+    let mut global_state = GLOBAL_STATE.load(deps.storage)?;
+    let mut biomass = BIOMASS.load(deps.storage)?;
+
+    // (Helper we defined earlier)
+    remove_stats_from_globals(&mut biomass, &mut global_state, &traits);
+
+    // Remove from internal maps
+    TOKEN_INFO.remove(deps.storage, &token_id);
+    remove_from_leaderboard(&mut deps, &token_id)?; // Don't forget this!
+
+    // 3. Update Stats (Supply decreases, Price drops)
+    let mut stats = GAME_STATS.load(deps.storage)?;
+    stats.total_burned += 1;
+    // Optional: stats.total_recycled += 1;
+    GAME_STATS.save(deps.storage, &stats)?;
+
+    BIOMASS.save(deps.storage, &biomass)?;
+    GLOBAL_STATE.save(deps.storage, &global_state)?;
+
+    // 4. Burn the NFT (Cross-contract call)
+    // This works because the Game Contract IS the minter/admin
+    let burn_msg = WasmMsg::Execute {
+        contract_addr: config.cw721_addr.to_string(),
+        msg: to_json_binary(&spore_fates::cw721::ExecuteMsg::Burn {
+            token_id: token_id.clone(),
+        })?,
+        funds: vec![],
+    };
+
+    Ok(Response::new()
+        .add_message(burn_msg)
+        .add_attribute("action", "recycle")
+        .add_attribute("token_id", token_id))
 }
 
 fn load_and_verify_nft(
@@ -1066,6 +1178,10 @@ fn remove_stats_from_globals(
     global_state.total_shares = global_state.total_shares.saturating_sub(shares);
 }
 
+fn count_primordial(genes: &[u8]) -> usize {
+    genes.iter().filter(|&&g| g == 3).count() // Assuming 3 is Primordial ID based on your parse_traits
+}
+
 #[entry_point]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
@@ -1088,7 +1204,13 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             start_after,
             limit,
         } => to_json_binary(&query_player_profile(deps, address, start_after, limit)?),
+        QueryMsg::GetLeaderboard {} => to_json_binary(&query_leaderboard(deps)?),
     }
+}
+
+fn query_leaderboard(deps: Deps) -> StdResult<LeaderboardResponse> {
+    let entries = LEADERBOARD.load(deps.storage).unwrap_or_default();
+    Ok(LeaderboardResponse { entries })
 }
 
 fn query_pending_spin(deps: Deps, token_id: String) -> StdResult<PendingSpinResponse> {
@@ -1173,7 +1295,8 @@ fn query_current_mint_price(deps: Deps) -> StdResult<MintPriceResponse> {
     let config = CONFIG.load(deps.storage)?;
     let stats = GAME_STATS.load(deps.storage)?;
 
-    let increment_total = config.mint_cost_increment * Uint128::from(stats.total_minted);
+    let current_supply = stats.total_minted.saturating_sub(stats.total_burned);
+    let increment_total = config.mint_cost_increment * Uint128::from(current_supply);
     let price = config.mint_cost + increment_total;
 
     Ok(MintPriceResponse { price })
@@ -1192,6 +1315,12 @@ fn query_game_stats(deps: Deps) -> StdResult<GameStatsResponse> {
         total_spins: stats.total_spins,
         total_rewards_distributed: stats.total_rewards_distributed,
         total_biomass: biomass,
+        total_mint_volume: stats.total_mint_volume,
+        total_spin_volume: stats.total_spin_volume,
+        total_rewards_recycled: stats.total_rewards_recycled,
+        total_harvests: stats.total_harvests,
+        total_splices: stats.total_splices,
+        total_ascensions: stats.total_ascensions,
     })
 }
 
@@ -1331,6 +1460,40 @@ fn query_ecosystem_metrics(deps: Deps) -> StdResult<EcosystemMetricsResponse> {
     })
 }
 
+// Helper to update the leaderboard
+fn update_leaderboard(deps: &mut DepsMut, token_id: String, score: Uint128) -> StdResult<()> {
+    let mut leaderboard = LEADERBOARD.load(deps.storage).unwrap_or_default();
+
+    // 1. Remove existing entry for this token (if any) to avoid duplicates
+    leaderboard.retain(|entry| entry.token_id != token_id);
+
+    // 2. Add the new/updated entry
+    leaderboard.push(LeaderboardEntry { token_id, score });
+
+    // 3. Sort Descending by Score
+    leaderboard.sort_by(|a, b| b.score.cmp(&a.score));
+
+    // 4. Keep only Top 10
+    if leaderboard.len() > 10 {
+        leaderboard.truncate(10);
+    }
+
+    LEADERBOARD.save(deps.storage, &leaderboard)
+}
+
+// Helper to remove a token (for Splice/Burn)
+fn remove_from_leaderboard(deps: &mut DepsMut, token_id: &String) -> StdResult<()> {
+    let mut leaderboard = LEADERBOARD.load(deps.storage).unwrap_or_default();
+
+    // Only save if we actually removed something to save gas
+    let len_before = leaderboard.len();
+    leaderboard.retain(|entry| &entry.token_id != token_id);
+
+    if leaderboard.len() != len_before {
+        LEADERBOARD.save(deps.storage, &leaderboard)?;
+    }
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2206,5 +2369,68 @@ mod tests {
         // Values should be different due to different nonces
         assert_ne!(random1, random2);
         assert_ne!(random2, random3);
+    }
+
+    #[test]
+    fn test_leaderboard_mechanics() {
+        let mut deps = mock_deps_custom();
+        let creator = deps.api.addr_make("creator");
+        let cw721 = deps.api.addr_make("cw721");
+        let oracle = deps.api.addr_make("oracle");
+
+        // 1. Instantiate
+        setup_contract(deps.as_mut(), &creator, &cw721, &oracle).unwrap();
+
+        // Initialize empty leaderboard
+        LEADERBOARD.save(deps.as_mut().storage, &vec![]).unwrap();
+
+        for i in 1..=12 {
+            let id = i.to_string();
+            let score = Uint128::new(i as u128 * 10); // Score = 10, 20, 30 ... 120
+
+            // Manually inject into leaderboard (simulating the effect of mint/spin)
+            update_leaderboard(&mut deps.as_mut(), id.clone(), score).unwrap();
+        }
+
+        // 3. Query Leaderboard
+        let res = query(deps.as_ref(), mock_env(), QueryMsg::GetLeaderboard {}).unwrap();
+        let resp: LeaderboardResponse = from_json(&res).unwrap();
+
+        // A. Check Length (Should be capped at 10)
+        assert_eq!(resp.entries.len(), 10);
+
+        // B. Check Sorting (Highest score first)
+        // Top should be ID "12" with score 120
+        assert_eq!(resp.entries[0].token_id, "12");
+        assert_eq!(resp.entries[0].score, Uint128::new(120));
+
+        // Bottom should be ID "3" with score 30 (IDs 1 and 2 fell off)
+        assert_eq!(resp.entries[9].token_id, "3");
+        assert_eq!(resp.entries[9].score, Uint128::new(30));
+
+        // 4. Test Update (Harvest logic: Score drops to 0)
+        // Let's say ID "12" harvests and goes to score 0.
+        update_leaderboard(&mut deps.as_mut(), "12".to_string(), Uint128::zero()).unwrap();
+
+        let res = query(deps.as_ref(), mock_env(), QueryMsg::GetLeaderboard {}).unwrap();
+        let resp: LeaderboardResponse = from_json(&res).unwrap();
+
+        // The top spot should now be ID "11" (Score 110)
+        assert_eq!(resp.entries[0].token_id, "11");
+
+        assert_eq!(resp.entries[9].token_id, "12");
+        assert_eq!(resp.entries[9].score, Uint128::zero());
+
+        // 5. Test Removal (Splice logic)
+        // Remove ID "11" (Current Top)
+        remove_from_leaderboard(&mut deps.as_mut(), &"11".to_string()).unwrap();
+
+        let res = query(deps.as_ref(), mock_env(), QueryMsg::GetLeaderboard {}).unwrap();
+        let resp: LeaderboardResponse = from_json(&res).unwrap();
+
+        assert_eq!(resp.entries.len(), 9);
+
+        // New Top should be "10"
+        assert_eq!(resp.entries[0].token_id, "10");
     }
 }

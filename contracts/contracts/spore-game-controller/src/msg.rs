@@ -2,6 +2,8 @@ use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Decimal, Uint128, Uint64};
 use spore_fates::game::GlobalBiomass;
 
+use crate::state::LeaderboardEntry;
+
 #[cw_serde]
 pub struct InstantiateMsg {
     pub payment_denom: String,
@@ -35,6 +37,9 @@ pub enum ExecuteMsg {
         token_id: String,
     },
     Mint {},
+    Recycle {
+        token_id: String,
+    },
     Splice {
         parent_1_id: String,
         parent_2_id: String,
@@ -68,6 +73,12 @@ pub enum QueryMsg {
     GetPendingSpin {
         token_id: String,
     },
+    GetLeaderboard {},
+}
+
+#[cw_serde]
+pub struct LeaderboardResponse {
+    pub entries: Vec<LeaderboardEntry>,
 }
 
 #[cw_serde]
@@ -93,6 +104,12 @@ pub struct GameStatsResponse {
     pub total_spins: u64,
     pub total_rewards_distributed: Uint128,
     pub total_biomass: GlobalBiomass,
+    pub total_mint_volume: Uint128,
+    pub total_spin_volume: Uint128,
+    pub total_rewards_recycled: Uint128,
+    pub total_harvests: u64,
+    pub total_splices: u64,
+    pub total_ascensions: u64,
 }
 
 #[cw_serde]
@@ -104,8 +121,8 @@ pub struct MintPriceResponse {
 pub struct PlayerProfileResponse {
     pub total_mushrooms: u64,
     pub total_shares: Uint128,
-    pub total_pending_rewards: Uint128,   // Calculated dynamically
-    pub best_mushroom_id: Option<String>, // The ID of their highest share mushroom
+    pub total_pending_rewards: Uint128,
+    pub best_mushroom_id: Option<String>,
     pub last_scanned_id: Option<String>,
 }
 

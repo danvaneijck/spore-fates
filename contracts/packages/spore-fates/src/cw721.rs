@@ -61,7 +61,7 @@ impl TraitExtension {
     }
 
     pub fn generate_svg(&self) -> String {
-        // 1. Color Mappings
+        // 1. Color Mappings (Same as before)
         let gene_colors = [
             "#6b7280", // 0: Rot
             "#ef4444", // 1: Toxin
@@ -76,16 +76,22 @@ impl TraitExtension {
             "#10b981", // 2: Nature
             "#f59e0b", // 3: Earth
             "#ef4444", // 4: Fire
+            "#d946ef", // 5: The Overmind
         ];
 
         let glow_color = substrate_colors
             .get(self.substrate as usize)
             .unwrap_or(&substrate_colors[0]);
 
-        // 2. Geometry Math
+        // Logic for Overmind visual effects
+        let is_overmind = self.substrate >= 5;
+        // Adjusted opacity: slightly higher base because gradient fades out
+        let aura_opacity = if is_overmind { "0.6" } else { "0.3" };
+        let float_duration = if is_overmind { "3s" } else { "6s" };
+
+        // 2. Geometry Math (Same as before)
         let cap_size = 100 + (self.cap as i16 * 15);
         let stem_height = 80 + (self.stem as i16 * 10);
-
         let stem_y = 200 - stem_height;
         let cap_y = 200 - stem_height;
         let cap_rx = cap_size / 2;
@@ -94,17 +100,14 @@ impl TraitExtension {
         // Spot Calculations
         let spot_rx = cap_rx / 5;
         let spot_ry = cap_ry / 4;
-
         let s1_x = 150 - (cap_rx / 2);
         let s1_y = cap_y + (cap_ry / 5);
-
         let s2_x = 150 + (cap_rx / 2) - 10;
         let s2_y = cap_y;
-
         let s3_x = 150 - 10;
         let s3_y = cap_y - (cap_ry / 2) + 5;
 
-        // 3. Orbs Logic
+        // 3. Orbs Logic (Same as before)
         let orb_positions = [
             (230, 150),
             (206, 206),
@@ -117,13 +120,10 @@ impl TraitExtension {
         ];
 
         let mut orbs_svg = String::new();
-        for i in 0..8 {
-            let gene_type = if i < self.genes.len() {
-                self.genes[i]
-            } else {
-                0
-            };
-            let (bx, by) = orb_positions[i];
+       for (i, &(bx, by)) in orb_positions.iter().enumerate() {
+            // Safely get gene type using .get() instead of manual indexing check
+            let gene_type = self.genes.get(i).copied().unwrap_or(0);
+            
             let color = gene_colors
                 .get(gene_type as usize)
                 .unwrap_or(&gene_colors[0]);
@@ -134,7 +134,7 @@ impl TraitExtension {
             } else {
                 "drift-vertical"
             };
-            let size = if gene_type == 0 { 3 } else { 5 }; // Standardized sizes
+            let size = if gene_type == 0 { 3 } else { 5 };
 
             let filter = if gene_type != 0 {
                 "filter=\"url(#glow)\""
@@ -153,7 +153,7 @@ impl TraitExtension {
             ));
         }
 
-        // 4. Substrate Dots
+        // 4. Substrate Dots (Same as before)
         let mut substrate_dots = String::new();
         for i in 0..5 {
             let cx = -40 + i * 20;
@@ -173,7 +173,7 @@ impl TraitExtension {
             ));
         }
 
-        // 5. Final Assembly
+        // 5. Final Assembly with NEW Gradient Logic
         format!(
             r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" style="background-color: #1a1a1a;">
                 <style>
@@ -183,7 +183,6 @@ impl TraitExtension {
                     @keyframes fade-breath {{ 0%, 100% {{ opacity: 0.4; }} 50% {{ opacity: 1; }} }}
                 </style>
                 <defs>
-                    <!-- Organic Texture Filter -->
                     <filter id="noise" x="0%" y="0%" width="100%" height="100%">
                         <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" result="noise"/>
                         <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.3 0" in="noise" result="coloredNoise"/>
@@ -191,43 +190,46 @@ impl TraitExtension {
                         <feBlend mode="multiply" in="composite" in2="SourceGraphic" />
                     </filter>
                     
-                    <!-- Glow Filter -->
                     <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
                         <feGaussianBlur stdDeviation="3" result="coloredBlur" />
                         <feMerge><feMergeNode in="coloredBlur" /><feMergeNode in="SourceGraphic" /></feMerge>
                     </filter>
 
-                    <!-- Cap Gradient (FULLY OPAQUE to cover stem) -->
                     <radialGradient id="capGrad" cx="50%" cy="40%" r="80%" fx="50%" fy="30%">
                         <stop offset="0%" stop-color="{}" stop-opacity="1" />
                         <stop offset="100%" stop-color="#111" stop-opacity="1" /> 
                     </radialGradient>
+
+                    <!-- NEW: Background Aura Gradient -->
+                    <radialGradient id="auraGrad" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+                        <stop offset="0%" stop-color="{}" stop-opacity="1" />
+                        <stop offset="70%" stop-color="{}" stop-opacity="0.2" />
+                        <stop offset="100%" stop-color="{}" stop-opacity="0" />
+                    </radialGradient>
                 </defs>
 
-                <!-- Background Aura (Substrate Color) -->
-                <circle cx="150" cy="150" r="120" fill="{}" filter="url(#glow)" opacity="0.1" />
+                <!-- Background Aura: Uses url(#auraGrad) and removed filter -->
+                <circle cx="150" cy="150" r="140" fill="url(#auraGrad)" opacity="{}" />
 
-                <!-- Floating Group -->
-                <g style="animation: float 6s ease-in-out infinite;">
-                    
-                    <!-- Stem (Drawn first) -->
+                <g style="animation: float {} ease-in-out infinite;">
+                    <!-- Stem -->
                     <rect x="135" y="{}" width="30" height="{}" fill="#E5E7EB" rx="15" />
                     <path d="M 135 {} Q 150 {} 165 {}" fill="none" stroke="#D1D5DB" stroke-width="2" />
 
-                    <!-- Cap Layer 1: Base Gradient (Opaque) -->
+                    <!-- Cap Layer 1 -->
                     <ellipse cx="150" cy="{}" rx="{}" ry="{}" fill="url(#capGrad)" />
 
-                    <!-- Cap Layer 2: Texture Overlay -->
+                    <!-- Cap Layer 2 -->
                     <ellipse cx="150" cy="{}" rx="{}" ry="{}" fill="#000" filter="url(#noise)" opacity="0.4" style="mix-blend-mode: overlay;" />
                     
-                    <!-- Cap Layer 3: Spots -->
+                    <!-- Cap Layer 3 -->
                     <g fill="#FFF" opacity="0.15">
                         <ellipse cx="{}" cy="{}" rx="{}" ry="{}" />
                         <ellipse cx="{}" cy="{}" rx="{}" ry="{}" />
                         <ellipse cx="{}" cy="{}" rx="{}" ry="{}" />
                     </g>
 
-                    <!-- Cap Layer 4: Rim Light -->
+                    <!-- Cap Layer 4 -->
                     <ellipse cx="150" cy="{}" rx="{}" ry="{}" fill="none" stroke="white" stroke-opacity="0.2" stroke-width="1.5" />
 
                     <!-- Orbs -->
@@ -237,23 +239,30 @@ impl TraitExtension {
                     <g transform="translate(150, 240)">{}</g>
                 </g>
             </svg>"##,
-            // Colors
-            glow_color, // Cap Gradient Start
-            glow_color, // Background Aura
-            // Stem
+            // 1. Cap Gradient Color
+            glow_color,
+            // 2. Aura Gradient Start Color
+            glow_color,
+            // 3. Aura Gradient Mid Color (Repeat color to keep tone)
+            glow_color,
+            // 4. Aura Gradient End Color (Repeat color)
+            glow_color,
+            // 5. Aura Opacity
+            aura_opacity,
+            // 6. Animation Speed
+            float_duration,
+            // Geometry arguments (Unchanged)
             stem_y,
             stem_height,
             stem_y + 10,
             stem_y + 10,
-            stem_y + 10, // Stem Curve
-            // Cap Base & Texture
+            stem_y + 10,
             cap_y,
             cap_rx,
             cap_ry,
             cap_y,
             cap_rx,
             cap_ry,
-            // Spots
             s1_x,
             s1_y,
             spot_rx,
@@ -266,19 +275,15 @@ impl TraitExtension {
             s3_y,
             spot_rx,
             spot_ry,
-            // Rim Light
             cap_y - 2,
             cap_rx - 2,
             cap_ry - 2,
-            // Injections
+            // SVG Injections
             orbs_svg,
             substrate_dots
         )
     }
-
-
 }
-
 impl CustomMsg for TraitExtension {}
 
 impl From<TraitExtension> for Vec<Trait> {

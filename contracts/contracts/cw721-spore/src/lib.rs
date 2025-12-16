@@ -117,6 +117,13 @@ pub fn execute(
             Ok(base_contract.execute(deps, &env, &info, cw721_msg)?)
         }
         ExecuteMsg::Burn { token_id } => {
+            // Only minter can burn
+            let minter = base_contract.query_minter_ownership(deps.storage)?;
+
+            if info.sender.to_string() != minter.owner.unwrap().to_string() {
+                return Err(ContractError::Unauthorized {});
+            }
+
             let cw721_msg = cw721_metadata_onchain::msg::ExecuteMsg::Burn { token_id };
             Ok(base_contract.execute(deps, &env, &info, cw721_msg)?)
         }

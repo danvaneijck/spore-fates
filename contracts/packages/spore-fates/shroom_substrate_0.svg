@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" style="background-color: #1a1a1a;">
+                <style>
+                    @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-5px); } }
+                    @keyframes drift-wide { 0% { transform: translate(0, 0); } 50% { transform: translate(5px, 15px); } 100% { transform: translate(0, 0); } }
+                    @keyframes drift-vertical { 0% { transform: translate(0, 0); } 50% { transform: translate(10px, -5px); } 100% { transform: translate(0, 0); } }
+                    @keyframes fade-breath { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+                </style>
+                <defs>
+                    <filter id="noise" x="0%" y="0%" width="100%" height="100%">
+                        <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" result="noise"/>
+                        <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.3 0" in="noise" result="coloredNoise"/>
+                        <feComposite operator="in" in="coloredNoise" in2="SourceGraphic" result="composite"/>
+                        <feBlend mode="multiply" in="composite" in2="SourceGraphic" />
+                    </filter>
+                    
+                    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                        <feGaussianBlur stdDeviation="3" result="coloredBlur" />
+                        <feMerge><feMergeNode in="coloredBlur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                    </filter>
+
+                    <radialGradient id="capGrad" cx="50%" cy="40%" r="80%" fx="50%" fy="30%">
+                        <stop offset="0%" stop-color="#9E7FFF" stop-opacity="1" />
+                        <stop offset="100%" stop-color="#111" stop-opacity="1" /> 
+                    </radialGradient>
+
+                    <!-- NEW: Background Aura Gradient -->
+                    <radialGradient id="auraGrad" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+                        <stop offset="0%" stop-color="#9E7FFF" stop-opacity="1" />
+                        <stop offset="70%" stop-color="#9E7FFF" stop-opacity="0.2" />
+                        <stop offset="100%" stop-color="#9E7FFF" stop-opacity="0" />
+                    </radialGradient>
+                </defs>
+
+                <!-- Background Aura: Uses url(#auraGrad) and removed filter -->
+                <circle cx="150" cy="150" r="140" fill="url(#auraGrad)" opacity="0.3" />
+
+                <g style="animation: float 6s ease-in-out infinite;">
+                    <!-- Stem -->
+                    <rect x="135" y="120" width="30" height="80" fill="#E5E7EB" rx="15" />
+                    <path d="M 135 130 Q 150 130 165 130" fill="none" stroke="#D1D5DB" stroke-width="2" />
+
+                    <!-- Cap Layer 1 -->
+                    <ellipse cx="150" cy="120" rx="50" ry="33" fill="url(#capGrad)" />
+
+                    <!-- Cap Layer 2 -->
+                    <ellipse cx="150" cy="120" rx="50" ry="33" fill="#000" filter="url(#noise)" opacity="0.4" style="mix-blend-mode: overlay;" />
+                    
+                    <!-- Cap Layer 3 -->
+                    <g fill="#FFF" opacity="0.15">
+                        <ellipse cx="125" cy="126" rx="10" ry="8" />
+                        <ellipse cx="165" cy="120" rx="10" ry="8" />
+                        <ellipse cx="140" cy="109" rx="10" ry="8" />
+                    </g>
+
+                    <!-- Cap Layer 4 -->
+                    <ellipse cx="150" cy="118" rx="48" ry="31" fill="none" stroke="white" stroke-opacity="0.2" stroke-width="1.5" />
+
+                    <!-- Orbs -->
+                    <g style="animation: drift-wide 4s ease-in-out infinite; animation-delay: -0s">
+                    <circle cx="230" cy="150" r="3" fill="#6b7280"  
+                        style="animation: fade-breath 2s ease-in-out infinite; animation-delay: -0s" />
+                </g><g style="animation: drift-vertical 5s ease-in-out infinite; animation-delay: -0.5s">
+                    <circle cx="206" cy="206" r="5" fill="#ef4444" filter="url(#glow)" 
+                        style="animation: fade-breath 3s ease-in-out infinite; animation-delay: -0.5s" />
+                </g><g style="animation: drift-wide 6s ease-in-out infinite; animation-delay: -1s">
+                    <circle cx="150" cy="230" r="5" fill="#10b981" filter="url(#glow)" 
+                        style="animation: fade-breath 2s ease-in-out infinite; animation-delay: -1s" />
+                </g><g style="animation: drift-vertical 4s ease-in-out infinite; animation-delay: -1.5s">
+                    <circle cx="93" cy="206" r="5" fill="#3b82f6" filter="url(#glow)" 
+                        style="animation: fade-breath 3s ease-in-out infinite; animation-delay: -1.5s" />
+                </g><g style="animation: drift-wide 5s ease-in-out infinite; animation-delay: -2s">
+                    <circle cx="70" cy="150" r="5" fill="#facc15" filter="url(#glow)" 
+                        style="animation: fade-breath 2s ease-in-out infinite; animation-delay: -2s" />
+                </g><g style="animation: drift-vertical 6s ease-in-out infinite; animation-delay: -2.5s">
+                    <circle cx="93" cy="93" r="3" fill="#6b7280"  
+                        style="animation: fade-breath 3s ease-in-out infinite; animation-delay: -2.5s" />
+                </g><g style="animation: drift-wide 4s ease-in-out infinite; animation-delay: -3s">
+                    <circle cx="150" cy="70" r="5" fill="#ef4444" filter="url(#glow)" 
+                        style="animation: fade-breath 2s ease-in-out infinite; animation-delay: -3s" />
+                </g><g style="animation: drift-vertical 5s ease-in-out infinite; animation-delay: -3.5s">
+                    <circle cx="206" cy="93" r="5" fill="#10b981" filter="url(#glow)" 
+                        style="animation: fade-breath 3s ease-in-out infinite; animation-delay: -3.5s" />
+                </g>
+
+                    <!-- Stats Dots -->
+                    <g transform="translate(150, 240)"><circle cx="-40" cy="0" r="3" fill="#333" opacity="0.2" /><circle cx="-20" cy="0" r="3" fill="#333" opacity="0.2" /><circle cx="0" cy="0" r="3" fill="#333" opacity="0.2" /><circle cx="20" cy="0" r="3" fill="#333" opacity="0.2" /><circle cx="40" cy="0" r="3" fill="#333" opacity="0.2" /></g>
+                </g>
+            </svg>

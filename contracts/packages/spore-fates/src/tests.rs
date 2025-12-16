@@ -8,7 +8,7 @@ mod tests {
     #[test]
     fn test_generate_all_substrates() {
         // We will generate 5 mushrooms, one for each substrate level
-        for sub_level in 0..=4 {
+        for sub_level in 0..=5 {
             let mut genes = vec![];
 
             // Give them slightly different genes for variety

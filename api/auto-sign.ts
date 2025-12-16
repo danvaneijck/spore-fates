@@ -6,14 +6,21 @@ import {
     PrivateKey,
 } from "@injectivelabs/sdk-ts";
 import { Network, getNetworkEndpoints } from "@injectivelabs/networks";
+import jwt from "jsonwebtoken";
 
 const DELEGATE_SEED = process.env.DELEGATE_MNEMONIC;
 const DELEGATE_ADDRESS = process.env.VITE_DELEGATE_ADDRESS;
+const JWT_SECRET = process.env.JWT_SECRET!;
 
 export default async function handler(request, response) {
     if (request.method !== "POST") {
         return response.status(405).json({ error: "Method not allowed" });
     }
+
+    const authHeader = request.headers.authorization; // "Bearer <token>"
+    if (!authHeader) return response.status(401).json({ error: "No token" });
+
+    const token = authHeader.split(" ")[1];
 
     if (!DELEGATE_SEED || !DELEGATE_ADDRESS) {
         return response
@@ -23,6 +30,18 @@ export default async function handler(request, response) {
 
     try {
         const { msgs, network: networkName } = request.body;
+
+        const decoded = jwt.verify(token, JWT_SECRET) as { address: string };
+        const senderAddress = decoded.address;
+
+        const isSpoofed = msgs.some(
+            (m: any) => m.sender && m.sender !== senderAddress
+        );
+        if (isSpoofed) {
+            return response.status(403).json({
+                error: "You can only sign transactions for your own address",
+            });
+        }
 
         const rehydratedMsgs = msgs.map((m: any) => {
             if (m.contractAddress && m.msg) {

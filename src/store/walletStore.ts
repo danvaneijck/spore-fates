@@ -7,11 +7,17 @@ interface WalletStore {
     selectedWalletType: Wallet | null;
     showWallets: boolean;
     isAutoSignEnabled: boolean; // NEW
+    authToken: string | null;
+    authExpiration: number;
 
     setConnectedWallet: (wallet: string | null) => void;
     setSelectedWalletType: (type: Wallet | null) => void;
     setShowWallets: (show: boolean) => void;
-    setAutoSignEnabled: (enabled: boolean) => void; // NEW
+    setAutoSignSession: (
+        enabled: boolean,
+        token?: string | null,
+        expiration?: number
+    ) => void;
     disconnect: () => void;
 }
 
@@ -22,17 +28,27 @@ export const useWalletStore = create<WalletStore>()(
             selectedWalletType: null,
             showWallets: false,
             isAutoSignEnabled: false, // Default to false
+            authToken: null,
+            authExpiration: 0,
 
             setConnectedWallet: (wallet) => set({ connectedWallet: wallet }),
             setSelectedWalletType: (type) => set({ selectedWalletType: type }),
             setShowWallets: (show) => set({ showWallets: show }),
-            setAutoSignEnabled: (enabled) =>
-                set({ isAutoSignEnabled: enabled }), // NEW
+
+            setAutoSignSession: (enabled, token = null, expiration = 0) =>
+                set({
+                    isAutoSignEnabled: enabled,
+                    authToken: token,
+                    authExpiration: expiration,
+                }),
+
             disconnect: () => {
                 set({
                     connectedWallet: null,
                     selectedWalletType: null,
-                    isAutoSignEnabled: false, // Reset on disconnect
+                    isAutoSignEnabled: false,
+                    authToken: null,
+                    authExpiration: 0,
                 });
                 localStorage.removeItem("wallet-storage");
             },
@@ -43,7 +59,9 @@ export const useWalletStore = create<WalletStore>()(
             partialize: (state) => ({
                 connectedWallet: state.connectedWallet,
                 selectedWalletType: state.selectedWalletType,
-                isAutoSignEnabled: state.isAutoSignEnabled, // Persist this preference
+                isAutoSignEnabled: state.isAutoSignEnabled,
+                authToken: state.authToken,
+                authExpiration: state.authExpiration,
             }),
         }
     )

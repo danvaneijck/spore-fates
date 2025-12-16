@@ -28,15 +28,15 @@ export const GlobalStatsBanner: React.FC<Props> = ({ refreshTrigger = 0 }) => {
 
     useEffect(() => {
         fetchGlobalStats();
-        fetchLeaderboard();
+        // fetchLeaderboard();
 
         // Poll stats fast (every 10s), Leaderboard slow (every 30s) to save RPC
         const statInterval = setInterval(fetchGlobalStats, 10000);
-        const lbInterval = setInterval(fetchLeaderboard, 60000);
+        // const lbInterval = setInterval(fetchLeaderboard, 60000);
 
         return () => {
             clearInterval(statInterval);
-            clearInterval(lbInterval);
+            // clearInterval(lbInterval);
         };
     }, [refreshTrigger]);
 

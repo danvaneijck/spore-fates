@@ -66,6 +66,7 @@ export const useWalletConnect = () => {
         injectiveAddress = getInjectiveAddress(addresses[0]);
       }
 
+
       setConnectedWallet(injectiveAddress);
       setSelectedWalletType(walletType);
       setShowWallets(false);

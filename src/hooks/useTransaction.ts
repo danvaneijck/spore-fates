@@ -10,8 +10,8 @@ import { useGameStore } from "../store/gameStore";
 export const useTransaction = () => {
     const [isLoading, setIsLoading] = useState(false);
 
-    const { connectedWallet, isAutoSignEnabled, setAutoSignEnabled } =
-        useWalletStore();
+    const { connectedWallet, setAutoSignSession } = useWalletStore();
+
     const { triggerRefresh } = useGameStore();
 
     const executeTransaction = useCallback(
@@ -26,6 +26,8 @@ export const useTransaction = () => {
             }
 
             setIsLoading(true);
+
+            const { isAutoSignEnabled } = useWalletStore.getState();
 
             const toastId = showTransactionToast.loading(
                 actionType === "spin"
@@ -47,6 +49,16 @@ export const useTransaction = () => {
 
                 // --- BRANCH 1: AUTO-SIGN (Via API) ---
                 if (isAutoSignEnabled && !forceManual) {
+                    const { authToken, authExpiration } =
+                        useWalletStore.getState();
+
+                    if (!authToken || Date.now() > authExpiration) {
+                        setAutoSignSession(false); // Reset state
+                        throw new Error(
+                            "Session expired. Please re-enable Auto-Sign."
+                        );
+                    }
+
                     const msgsArray = Array.isArray(msg) ? msg : [msg];
                     const jsonMsgs = msgsArray.map((m: any) => ({
                         contractAddress: m.params.contractAddress,
@@ -57,9 +69,12 @@ export const useTransaction = () => {
 
                     const response = await fetch("/api/auto-sign", {
                         method: "POST",
-                        headers: { "Content-Type": "application/json" },
+                        headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${authToken}`,
+                        },
                         body: JSON.stringify({
-                            msgs: jsonMsgs, // Sends clean JSON objects
+                            msgs: jsonMsgs,
                             network: NETWORK_CONFIG.network,
                         }),
                     });
@@ -71,7 +86,7 @@ export const useTransaction = () => {
                         data.error.includes("failed to get grant")
                     ) {
                         console.log("no grant");
-                        setAutoSignEnabled(false);
+                        setAutoSignSession(false);
                         throw new Error("Auto-sign grant expired");
                     }
                     if (!response.ok) {
@@ -148,7 +163,7 @@ export const useTransaction = () => {
                 setIsLoading(false);
             }
         },
-        [connectedWallet, isAutoSignEnabled, triggerRefresh, setAutoSignEnabled]
+        [connectedWallet, setIsLoading, triggerRefresh, setAutoSignSession]
     );
 
     return { executeTransaction, isLoading };

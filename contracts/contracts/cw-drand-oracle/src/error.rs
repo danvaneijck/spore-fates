@@ -1,17 +1,14 @@
-use cosmwasm_std::{StdError, VerificationError};
+use cosmwasm_std::StdError;
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq)]
 pub enum ContractError {
-    #[error("Invalid signature")]
-    InvalidSignature,
+    #[error("Invalid signature: {msg}")]
+    InvalidSignature { msg: String },
 
     #[error("Invalid randomness")]
     InvalidRandomness,
 
     #[error(transparent)]
     Std(#[from] StdError),
-
-    #[error(transparent)]
-    Verification(#[from] VerificationError),
 }

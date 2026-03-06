@@ -67,3 +67,46 @@ pub const MINT_COUNTER: Item<u64> = Item::new("mint_counter");
 pub const PENDING_SPINS: Map<&str, PendingSpin> = Map::new("pending_spins");
 pub const BIOMASS: Item<GlobalBiomass> = Item::new("biomass");
 pub const LEADERBOARD: Item<Vec<LeaderboardEntry>> = Item::new("leaderboard");
+
+// Token locking to prevent concurrent operations
+pub const LOCKED_TOKENS: Map<&str, String> = Map::new("locked_tokens"); // token_id -> reason
+
+#[cw_serde]
+pub struct PendingMint {
+    pub player: Addr,
+    pub payment_amount: Uint128,
+    pub target_round: u64,
+    pub mint_id: String,
+}
+
+pub const PENDING_MINTS: Map<&str, PendingMint> = Map::new("pending_mints");
+
+#[cw_serde]
+pub struct PendingSplice {
+    pub player: Addr,
+    pub parent_1_id: String,
+    pub parent_2_id: String,
+    pub target_round: u64,
+    pub splice_id: String,
+}
+
+pub const PENDING_SPLICES: Map<&str, PendingSplice> = Map::new("pending_splices");
+
+#[cw_serde]
+pub struct PendingAscend {
+    pub player: Addr,
+    pub token_id: String,
+    pub target_round: u64,
+    pub burned_amount: Uint128,
+}
+
+pub const PENDING_ASCENDS: Map<&str, PendingAscend> = Map::new("pending_ascends");
+
+// Per-player index: tracks which tokens each player owns.
+// Eliminates the need for cross-contract CW721 Tokens queries in profile lookups.
+#[cw_serde]
+pub struct PlayerInfo {
+    pub token_ids: Vec<String>,
+}
+
+pub const PLAYER_INFO: Map<&str, PlayerInfo> = Map::new("player_info");

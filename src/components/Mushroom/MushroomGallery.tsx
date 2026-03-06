@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sprout, Plus, Zap, Loader2, Coins, ArrowDownWideNarrow, Wheat, AlertTriangle } from 'lucide-react';
-import { shroomService } from '../../services/shroomService';
+import { DRAND_HASH, shroomService } from '../../services/shroomService';
 import { MsgBroadcaster } from "@injectivelabs/wallet-core";
 import { walletStrategy } from '../Wallet/WalletConnect';
 import { getNetworkEndpoints, Network } from '@injectivelabs/networks';
@@ -224,9 +224,10 @@ export const MushroomGallery: React.FC<Props> = ({ currentTokenId }) => {
 
     const handleBatchMint = async (count: number) => {
         setIsMinting(true);
-        const toastId = showTransactionToast.loading(`Cultivating ${count} mushrooms...`);
+        const toastId = showTransactionToast.loading(`Requesting ${count} mushrooms...`);
         try {
-            const msgs = await shroomService.makeBatchMintMsgs(address, count);
+            // Step 1: Request all mints
+            const requestMsgs = await shroomService.makeBatchRequestMintMsgs(address, count);
             const network = NETWORK_CONFIG.network === "mainnet" ? Network.Mainnet : Network.Testnet;
             const endpoints = getNetworkEndpoints(network);
             const broadcaster = new MsgBroadcaster({
@@ -235,10 +236,50 @@ export const MushroomGallery: React.FC<Props> = ({ currentTokenId }) => {
                 endpoints,
                 simulateTx: true,
             });
-            console.log(walletStrategy.wallet)
-            await broadcaster.broadcastV2({ msgs, injectiveAddress: address });
+            const requestResult = await broadcaster.broadcastV2({ msgs: requestMsgs, injectiveAddress: address });
+
+            // Extract mint_ids and target_round from the request result
+            const mintIds: string[] = [];
+            let targetRound = 0;
+            const events = (requestResult as any)?.events || [];
+            for (const event of events) {
+                if (event.type === 'wasm') {
+                    for (const attr of event.attributes) {
+                        if (attr.key === 'mint_id') mintIds.push(attr.value);
+                        if (attr.key === 'target_round') targetRound = parseInt(attr.value);
+                    }
+                }
+            }
+
+            if (mintIds.length === 0 || targetRound === 0) {
+                throw new Error("Failed to extract mint IDs from request");
+            }
+
+            // Step 2: Wait for drand beacon
             showTransactionToast.dismiss(toastId);
-            showTransactionToast.success("Batch mint successful! refreshing colony...");
+            const waitToastId = showTransactionToast.loading('Waiting for cosmic randomness...');
+
+            await new Promise<void>((resolve) => {
+                const checkDrand = setInterval(async () => {
+                    try {
+                        const response = await fetch(`https://api.drand.sh/${DRAND_HASH}/public/${targetRound}`);
+                        if (response.ok) {
+                            clearInterval(checkDrand);
+                            resolve();
+                        }
+                    } catch (e) { /* not ready yet */ }
+                }, 1000);
+            });
+
+            // Step 3: Resolve all mints
+            showTransactionToast.dismiss(waitToastId);
+            const resolveToastId = showTransactionToast.loading('Birthing sporelings...');
+
+            const resolveMsgs = await shroomService.makeBatchResolveMintMsgs(address, mintIds, targetRound);
+            await broadcaster.broadcastV2({ msgs: resolveMsgs, injectiveAddress: address });
+
+            showTransactionToast.dismiss(resolveToastId);
+            showTransactionToast.success("Batch mint successful! Refreshing colony...");
             setIsMintModalOpen(false);
             await new Promise(r => setTimeout(r, 2000));
             fetchTokens();

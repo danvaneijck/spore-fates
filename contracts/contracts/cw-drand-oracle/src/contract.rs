@@ -40,20 +40,51 @@ pub fn execute(
     }
 }
 
+pub mod verify {
+    use drand_verify::Pubkey;
+    use sha2::{Digest, Sha256};
+
+    /// Quicknet public key (G2, 96 bytes) — hex encoded.
+    /// Network: drand quicknet (bls-unchained-g1-rfc9380)
+    pub const QUICKNET_PK_HEX: &str = "83cf0f2896adee7eb8b5f01fcad3912212c437e0073e911fb90022d3e760183c8c4b450b6a0a6c3ac6a5776a2d1064510d1fec758c921cc22b0e17e63aaf4bcb5ed66304de9cf809bd274ca73bab4af5a6e9c76a4bc09e76eae8991ef5ece45a";
+
+    /// Verify a quicknet drand beacon and derive randomness.
+    /// Returns 32-byte randomness = sha256(signature) on success.
+    pub fn verify_quicknet_beacon(
+        round: u64,
+        signature: &[u8],
+    ) -> Result<[u8; 32], String> {
+        let pk_bytes =
+            hex::decode(QUICKNET_PK_HEX).map_err(|e| format!("bad pubkey hex: {}", e))?;
+        let pk_fixed: [u8; 96] = pk_bytes
+            .try_into()
+            .map_err(|_| "invalid pubkey length".to_string())?;
+
+        let pk = drand_verify::G2PubkeyRfc::from_fixed(pk_fixed)
+            .map_err(|e| format!("invalid pubkey: {:?}", e))?;
+
+        // Quicknet is unchained: previous_signature is empty
+        let is_valid = pk
+            .verify(round, &[], signature)
+            .map_err(|e| format!("verification failed: {:?}", e))?;
+
+        if !is_valid {
+            return Err("invalid BLS signature".to_string());
+        }
+
+        let randomness: [u8; 32] = Sha256::digest(signature).into();
+        Ok(randomness)
+    }
+}
+
 pub mod execute {
     use crate::{
         msg::ConcreteBeacon,
         state::{Randomness, DELIVERY_QUEUES},
     };
     use cosmwasm_std::{HexBinary, SubMsg, Timestamp, Uint64, WasmMsg};
-    use sha2::{Digest, Sha256};
-    // use cosmwasm_std::{HashFunction};
-    // use hex_literal::hex;
 
     use super::*;
-
-    // const G1_DOMAIN: &[u8] = b"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_";
-    // const QUICKNET_PUBLIC_KEY: [u8; 96] = hex!("83cf0f2896adee7eb8b5f01fcad3912212c437e0073e911fb90022d3e760183c8c4b450b6a0a6c3ac6a5776a2d1064510d1fec758c921cc22b0e17e63aaf4bcb5ed66304de9cf809bd274ca73bab4af5a6e9c76a4bc09e76eae8991ef5ece45a");
 
     const GENESIS: Timestamp = Timestamp::from_seconds(1692803367);
     const PERIOD_IN_NS: u64 = 3_000_000_000;
@@ -83,24 +114,12 @@ pub mod execute {
                 .add_attribute("status", "already_processed"));
         }
 
-        // Verify the randomness beacon
-        // let msg = Sha256::digest(round.to_be_bytes());
-        // let msg = deps
-        //     .api
-        //     .bls12_381_hash_to_g1(HashFunction::Sha256, &msg, G1_DOMAIN)?;
+        // Verify the BLS signature using drand-verify
+        let verified_randomness = verify::verify_quicknet_beacon(round.u64(), &signature)
+            .map_err(|e| ContractError::InvalidSignature { msg: e })?;
 
-        // let is_valid = deps.api.bls12_381_pairing_equality(
-        //     &signature,
-        //     &cosmwasm_std::BLS12_381_G2_GENERATOR,
-        //     &msg,
-        //     &QUICKNET_PUBLIC_KEY,
-        // )?;
-        // if !is_valid {
-        //     return Err(ContractError::InvalidSignature);
-        // }
-
-        let reproduced_randomness = Sha256::digest(&signature);
-        if reproduced_randomness[..] != randomness[..] {
+        // Verify submitted randomness matches the derived value
+        if verified_randomness[..] != randomness[..] {
             return Err(ContractError::InvalidRandomness);
         }
 
@@ -109,7 +128,7 @@ pub mod execute {
             deps.storage,
             round.u64(),
             &Randomness {
-                uniform_seed: reproduced_randomness.into(),
+                uniform_seed: verified_randomness,
             },
         )?;
 
@@ -123,7 +142,7 @@ pub mod execute {
                         contract_addr: receiver.into(),
                         msg: cosmwasm_std::to_json_binary(&ConcreteBeacon {
                             round,
-                            uniform_seed: reproduced_randomness.into(),
+                            uniform_seed: verified_randomness,
                         })?,
                         funds: vec![],
                     })
@@ -198,18 +217,26 @@ mod tests {
         testing::{mock_dependencies, mock_env},
         Addr, HexBinary, Uint64,
     };
-    use hex_literal::hex;
+    use sha2::{Digest, Sha256};
 
-    const ROUND: u64 = 123;
-    const SIGNATURE: [u8; 48] = hex!("b75c69d0b72a5d906e854e808ba7e2accb1542ac355ae486d591aa9d43765482e26cd02df835d3546d23c4b13e0dfc92");
-    const RANDOMNESS: [u8; 32] =
-        hex!("fb8f7bc29bf24db51871ec8c79f3a1e4bd0557bc0dfcee9ed1d924e69d1c60dc");
+    // Real quicknet test vector (round 1000)
+    const ROUND: u64 = 1000;
+    const SIGNATURE_HEX: &str = "b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39";
+    const RANDOMNESS_HEX: &str = "fe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd";
+
+    fn signature_bytes() -> Vec<u8> {
+        hex::decode(SIGNATURE_HEX).unwrap()
+    }
+
+    fn randomness_bytes() -> Vec<u8> {
+        hex::decode(RANDOMNESS_HEX).unwrap()
+    }
 
     fn add_beacon_msg() -> ExecuteMsg {
         ExecuteMsg::AddBeacon {
             round: Uint64::new(ROUND),
-            signature: HexBinary::from(SIGNATURE),
-            randomness: HexBinary::from(RANDOMNESS),
+            signature: HexBinary::from(signature_bytes()),
+            randomness: HexBinary::from(randomness_bytes()),
         }
     }
 
@@ -218,7 +245,16 @@ mod tests {
     }
 
     #[test]
-    fn accepts_beacon() {
+    fn verify_test_vector_consistency() {
+        // Verify that sha256(signature) == randomness for our test vector
+        let sig = signature_bytes();
+        let expected_randomness = randomness_bytes();
+        let computed: [u8; 32] = Sha256::digest(&sig).into();
+        assert_eq!(computed[..], expected_randomness[..]);
+    }
+
+    #[test]
+    fn accepts_valid_beacon() {
         let mut deps = mock_dependencies();
         let env = mock_env();
 
@@ -226,38 +262,60 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_signature() {
+    fn rejects_invalid_bls_signature() {
         let mut deps = mock_dependencies();
         let env = mock_env();
 
-        let mut msg = add_beacon_msg();
-        let ExecuteMsg::AddBeacon { signature, .. } = &mut msg else {
-            unreachable!();
-        };
-
-        let mut sig = Vec::from(signature.clone());
+        let mut sig = signature_bytes();
         sig[0] ^= 0xF3;
 
-        *signature = HexBinary::from(sig);
+        // Recompute randomness for the tampered signature so it passes the SHA256 check
+        // but should still fail BLS verification
+        let tampered_randomness: [u8; 32] = Sha256::digest(&sig).into();
+
+        let msg = ExecuteMsg::AddBeacon {
+            round: Uint64::new(ROUND),
+            signature: HexBinary::from(sig),
+            randomness: HexBinary::from(tampered_randomness.to_vec()),
+        };
+
+        let res = execute(deps.as_mut(), env, message_info(), msg);
+        assert!(res.is_err());
+        match res.unwrap_err() {
+            ContractError::InvalidSignature { .. } => {}
+            e => panic!("expected InvalidSignature, got: {:?}", e),
+        }
+    }
+
+    #[test]
+    fn rejects_wrong_round() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+
+        // Use valid signature but wrong round
+        let msg = ExecuteMsg::AddBeacon {
+            round: Uint64::new(ROUND + 1),
+            signature: HexBinary::from(signature_bytes()),
+            randomness: HexBinary::from(randomness_bytes()),
+        };
 
         let res = execute(deps.as_mut(), env, message_info(), msg);
         assert!(res.is_err());
     }
 
     #[test]
-    fn rejects_invalid_randomness() {
+    fn rejects_mismatched_randomness() {
         let mut deps = mock_dependencies();
         let env = mock_env();
 
-        let mut msg = add_beacon_msg();
-        let ExecuteMsg::AddBeacon { randomness, .. } = &mut msg else {
-            unreachable!();
-        };
-
-        let mut rand = Vec::from(randomness.clone());
+        let mut rand = randomness_bytes();
         rand[0] ^= 0xF3;
 
-        *randomness = HexBinary::from(rand);
+        let msg = ExecuteMsg::AddBeacon {
+            round: Uint64::new(ROUND),
+            signature: HexBinary::from(signature_bytes()),
+            randomness: HexBinary::from(rand),
+        };
 
         let res = execute(deps.as_mut(), env, message_info(), msg);
         assert_eq!(res.unwrap_err(), ContractError::InvalidRandomness);
@@ -272,7 +330,7 @@ mod tests {
 
         let res = query(deps.as_ref(), env, QueryMsg::LatestBeacon {}).unwrap();
         let value: ConcreteBeacon = from_json(&res).unwrap();
-        assert_eq!(value.uniform_seed, RANDOMNESS);
+        assert_eq!(hex::encode(value.uniform_seed), RANDOMNESS_HEX);
     }
 
     #[test]
@@ -286,13 +344,13 @@ mod tests {
             deps.as_ref(),
             env,
             QueryMsg::Beacon {
-                round: Uint64::new(123),
+                round: Uint64::new(ROUND),
             },
         )
         .unwrap();
 
         let value: BeaconResponse = from_json(&res).unwrap();
-        assert_eq!(value.uniform_seed, RANDOMNESS);
+        assert_eq!(hex::encode(value.uniform_seed), RANDOMNESS_HEX);
     }
 
     #[test]
@@ -302,13 +360,10 @@ mod tests {
 
         // 1. First submission (Should succeed and process)
         let res = execute(deps.as_mut(), env.clone(), message_info(), add_beacon_msg()).unwrap();
-        // Standard success attributes shouldn't have "status" = "already_processed"
         assert!(res.attributes.iter().all(|a| a.key != "status"));
 
         // 2. Second submission (Should succeed but skip processing)
         let res2 = execute(deps.as_mut(), env.clone(), message_info(), add_beacon_msg()).unwrap();
-
-        // Verify it returned early
         let status = res2.attributes.iter().find(|a| a.key == "status").unwrap();
         assert_eq!(status.value, "already_processed");
     }

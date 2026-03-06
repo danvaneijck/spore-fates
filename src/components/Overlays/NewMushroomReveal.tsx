@@ -150,7 +150,7 @@ export const NewMushroomReveal: React.FC<Props> = ({ isOpen, onClose, childId, c
                                     className="relative z-10 w-56 h-56 origin-bottom"
                                     style={{ animation: 'sproutUp 1.2s cubic-bezier(0.34, 1.56, 0.64, 1) forwards' }}
                                 >
-                                    <MushroomRenderer traits={childTraits} />
+                                    {childId && <MushroomRenderer tokenId={childId} />}
 
                                     {/* Sparkle particles overlay */}
                                     <Sparkles size={24} className="absolute -top-4 -right-4 text-yellow-300 animate-spin-slow" />

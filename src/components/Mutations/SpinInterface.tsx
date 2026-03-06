@@ -25,6 +25,7 @@ interface SpinInterfaceProps {
   onAutoModeChange?: (isActive: boolean) => void;
   onSpinComplete?: () => void;
   spinResult: SpinResult | null;
+  ascendStage?: 'idle' | 'requesting' | 'waiting_drand' | 'resolving';
 }
 
 export const SpinInterface: React.FC<SpinInterfaceProps> = ({
@@ -40,7 +41,8 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
   spinStage,
   onAutoModeChange,
   onSpinComplete,
-  spinResult
+  spinResult,
+  ascendStage
 }) => {
 
   const { toggleAutoSign, isToggling } = useAutoSign();
@@ -289,7 +291,7 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
           </div>
 
           <div className='max-w-[300px] m-auto'>
-            <MushroomRenderer traits={traits} />
+            <MushroomRenderer tokenId={tokenId} refreshKey={traits.cap + traits.stem + traits.spores + traits.substrate} />
           </div>
 
           {/* Trait Stats Breakdown */}
@@ -578,7 +580,7 @@ export const SpinInterface: React.FC<SpinInterfaceProps> = ({
           </div>
 
           {/* Ascension */}
-          <AscensionCard isLoading={isLoading} traits={traits} canAscend={canAscend} onAscend={onAscend} />
+          <AscensionCard isLoading={isLoading} traits={traits} canAscend={canAscend} onAscend={onAscend} ascendStage={ascendStage} />
 
         </div>
 

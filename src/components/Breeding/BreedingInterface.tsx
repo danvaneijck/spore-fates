@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { TraitExtension, shroomService } from '../../services/shroomService';
+import React, { useCallback, useState } from 'react';
+import { DRAND_HASH, TraitExtension, shroomService } from '../../services/shroomService';
 import { NETWORK_CONFIG } from '../../config';
 import { MushroomRenderer } from '../Mushroom/MushroomRenderer';
 import { GeneticsDisplay } from '../Mushroom/GeneticsDisplay';
@@ -36,60 +36,84 @@ export const BreedingInterface: React.FC<Props> = ({
     const [revealOpen, setRevealOpen] = useState(false);
     const [newChildId, setNewChildId] = useState<string | null>(null);
     const [newChildTraits, setNewChildTraits] = useState<TraitExtension | null>(null);
+    const [spliceStage, setSpliceStage] = useState<'idle' | 'requesting' | 'waiting_drand' | 'resolving'>('idle');
 
     const handleSelectPartner = (id: string, traits: TraitExtension) => {
         setParentBId(id);
         setParentBTraits(traits);
     };
 
+    const handleResolveSplice = useCallback(async (spliceId: string, round: number) => {
+        setSpliceStage('resolving');
+        try {
+            const msgs = await shroomService.makeResolveSpliceBatchMsg(address, spliceId, round);
+            const result = await executeTransaction(msgs, 'resolve_splice', true);
+
+            if (result) {
+                const childId = findAttribute(result, 'wasm', 'child_id');
+                if (childId) {
+                    setNewChildId(childId);
+                    setTimeout(async () => {
+                        const traits = await shroomService.getShroomTraits(childId);
+                        setNewChildTraits(traits);
+                        setRevealOpen(true);
+                    }, 1000);
+                }
+            }
+        } finally {
+            setSpliceStage('idle');
+            setParentBId(null);
+            setParentBTraits(null);
+        }
+    }, [address, executeTransaction]);
+
+    const waitAndResolveSplice = useCallback(async (spliceId: string, round: number) => {
+        setSpliceStage('waiting_drand');
+        const checkDrand = setInterval(async () => {
+            try {
+                const response = await fetch(`https://api.drand.sh/${DRAND_HASH}/public/${round}`);
+                if (response.ok) {
+                    clearInterval(checkDrand);
+                    await handleResolveSplice(spliceId, round);
+                }
+            } catch (e) { /* not ready yet */ }
+        }, 1000);
+    }, [handleResolveSplice]);
+
     const handleSplice = async () => {
         if (!parentBId) return;
 
-        // 1. Check Approval
         const isApproved = await shroomService.isApprovedForAll(address, NETWORK_CONFIG.gameControllerAddress);
 
         if (!isApproved) {
-            // Step A: Approve
             const approveMsg = shroomService.makeApproveAllMsg(address, NETWORK_CONFIG.gameControllerAddress);
             const res = await executeTransaction(approveMsg, 'approve', true);
-            if (!res) return; // Stop if failed
+            if (!res) return;
         }
 
-        // 2. Open Confirmation Modal for Step B (Burn & Splice)
         setShowConfirm(true);
     };
 
     const confirmSplice = async () => {
         if (!parentBId) return;
         setShowConfirm(false);
+        setSpliceStage('requesting');
 
-        // 1. Execute Splice
-        const msg = shroomService.makeSpliceMsg(address, parentAId, parentBId);
-        const result = await executeTransaction(msg, 'splice', true);
+        const msg = shroomService.makeRequestSpliceMsg(address, parentAId, parentBId);
+        const result = await executeTransaction(msg, 'request_splice');
 
         if (result) {
-            // 2. Find Child ID from logs
-            // CosmWasm usually emits 'wasm-splice' event with 'child_id' attribute
-            const childId = findAttribute(result, 'splice', 'child_id');
-
-            if (childId) {
-                setNewChildId(childId);
-
-                // 3. Fetch New Child Data (with a tiny delay to ensure indexer/node caught up)
-                setTimeout(async () => {
-                    const traits = await shroomService.getShroomTraits(childId);
-                    setNewChildTraits(traits);
-                    setRevealOpen(true);
-                }, 1000);
+            const spliceId = findAttribute(result, 'wasm', 'splice_id');
+            const round = findAttribute(result, 'wasm', 'target_round');
+            if (spliceId && round) {
+                await waitAndResolveSplice(spliceId, parseInt(round));
             }
+        } else {
+            setSpliceStage('idle');
         }
-
-        // Reset selection
-        setParentBId(null);
-        setParentBTraits(null);
     };
 
-    // Helper to parse logs
+    const isBusy = isLoading || spliceStage !== 'idle';
 
 
     return (
@@ -112,7 +136,7 @@ export const BreedingInterface: React.FC<Props> = ({
                     <div className="flex-1 flex flex-col items-center">
                         <span className="text-xs font-bold text-textSecondary mb-2">Parent A</span>
                         <div className="w-full aspect-square bg-background rounded-xl border border-border p-2 mb-2">
-                            <MushroomRenderer traits={parentATraits} />
+                            <MushroomRenderer tokenId={parentAId} />
                         </div>
                         <span className="text-white font-mono text-sm">#{parentAId}</span>
                     </div>
@@ -127,8 +151,8 @@ export const BreedingInterface: React.FC<Props> = ({
                         <span className="text-xs font-bold text-textSecondary mb-2">Parent B</span>
                         <div className={`w-full aspect-square bg-background rounded-xl border-2 border-dashed p-2 mb-2 flex items-center justify-center
                     ${parentBId ? 'border-primary' : 'border-border'}`}>
-                            {parentBTraits ? (
-                                <MushroomRenderer traits={parentBTraits} />
+                            {parentBId && parentBTraits ? (
+                                <MushroomRenderer tokenId={parentBId} />
                             ) : (
                                 <span className="text-xs text-textSecondary">Select Partner</span>
                             )}
@@ -164,11 +188,14 @@ export const BreedingInterface: React.FC<Props> = ({
                 <div className="mt-auto">
                     <button
                         onClick={handleSplice}
-                        disabled={isLoading || !parentBId}
+                        disabled={isBusy || !parentBId}
                         className="w-full py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl font-bold text-lg hover:shadow-lg hover:shadow-purple-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
-                        {isLoading ? <Loader2 className="animate-spin" /> : <GitMerge />}
-                        {parentBId ? 'Initiate Splicing Ritual' : 'Select Partner to Breed'}
+                        {isBusy ? <Loader2 className="animate-spin" /> : <GitMerge />}
+                        {spliceStage === 'waiting_drand' ? 'Genes are entangling...'
+                            : spliceStage === 'resolving' ? 'Splicing DNA...'
+                            : isBusy ? 'Requesting splice...'
+                            : parentBId ? 'Initiate Splicing Ritual' : 'Select Partner to Breed'}
                     </button>
                     <p className="text-center text-xs text-textSecondary mt-3">
                         ⚠️ Warning: Both parents will be permanently burned.

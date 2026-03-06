@@ -41,4 +41,16 @@ pub enum ContractError {
 
     #[error("Divide by zero error: {0}")]
     DivideByZero(#[from] DivideByZeroError),
+
+    #[error("Token {token_id} is locked: {reason}")]
+    TokenLocked { token_id: String, reason: String },
+
+    #[error("No pending mint")]
+    NoPendingMint {},
+
+    #[error("No pending splice")]
+    NoPendingSplice {},
+
+    #[error("No pending ascend")]
+    NoPendingAscend {},
 }

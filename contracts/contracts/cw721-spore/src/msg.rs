@@ -53,4 +53,12 @@ pub enum QueryMsg {
         limit: Option<u32>,
     },
     Minter {},
+    GetSvg {
+        token_id: String,
+    },
+}
+
+#[cw_serde]
+pub struct GetSvgResponse {
+    pub svg: String,
 }

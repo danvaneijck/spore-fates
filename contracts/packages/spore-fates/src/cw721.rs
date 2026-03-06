@@ -1,5 +1,3 @@
-use base64::engine::general_purpose;
-use base64::Engine;
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Binary, CustomMsg};
 use cw20::Expiration;
@@ -341,12 +339,10 @@ impl From<TraitExtension> for Vec<Trait> {
 impl From<TraitExtension> for NftExtensionMsg {
     fn from(mut t: TraitExtension) -> Self {
         t.recalculate_base_stats();
-        let svg_data = t.generate_svg();
-        let b64_encoded = general_purpose::STANDARD.encode(&svg_data);
-        let image_uri = format!("data:image/svg+xml;base64,{}", b64_encoded);
-
+        // SVG is stored separately in the CW721 contract's SVGS map
+        // to avoid bloating NftExtension (which gets deserialized on every token enumeration)
         NftExtensionMsg {
-            image_data: Some(svg_data),
+            image_data: None,
             external_url: Some("https://spore-fates.vercel.app/".to_string()),
             description: Some(
                 "A generated SporeFate Mushroom. Stats and appearance mutate on-chain.".to_string(),
@@ -354,7 +350,7 @@ impl From<TraitExtension> for NftExtensionMsg {
             name: Some("SporeFate Specimen".to_string()),
             attributes: Some(t.into()),
             background_color: Some("1a1a1a".to_string()),
-            image: Some(image_uri),
+            image: None,
             animation_url: None,
             youtube_url: None,
         }

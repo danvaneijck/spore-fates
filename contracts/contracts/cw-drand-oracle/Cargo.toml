@@ -11,10 +11,13 @@ crate-type = ["cdylib", "rlib"]
 library = []
 
 [dependencies]
-cosmwasm-schema = "2.1.0"
-cosmwasm-std = { version = "2.1.0", features = ["cosmwasm_1_4"] }
+cosmwasm-schema = "2.2.2"
+cosmwasm-std = { version = "2.2.2", features = ["cosmwasm_1_4"] }
 cw-storage-plus = "2.0.0"
 cw2 = "2.0.0"
 hex-literal = "0.4.1"
+hex = "0.4"
 sha2 = "0.10.8"
+drand-verify = "0.6.2"
+ed25519-zebra = { version = "4.1.0", features = ["alloc"] }
 thiserror = { version = "1.0.58" }

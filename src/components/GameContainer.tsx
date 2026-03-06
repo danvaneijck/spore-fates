@@ -160,10 +160,44 @@ const GameContainer = () => {
         return await executeTransaction(msg, 'harvest', true);
     };
 
+    const [ascendStage, setAscendStage] = useState<'idle' | 'requesting' | 'waiting_drand' | 'resolving'>('idle');
+
+    const handleResolveAscend = useCallback(async (round: number) => {
+        setAscendStage('resolving');
+        try {
+            const msgs = await shroomService.makeResolveAscendBatchMsg(address, tokenId, round);
+            const result = await executeTransaction(msgs, 'resolve_ascend', true);
+            if (result) {
+                triggerRefresh();
+            }
+        } finally {
+            setAscendStage('idle');
+        }
+    }, [address, tokenId, executeTransaction, triggerRefresh]);
+
     const onAscend = async () => {
         if (!tokenId) return;
-        const msg = shroomService.makeAscendMsg(address, tokenId);
-        return await executeTransaction(msg, 'ascend', true);
+        setAscendStage('requesting');
+        const msg = shroomService.makeRequestAscendMsg(address, tokenId);
+        const result = await executeTransaction(msg, 'request_ascend');
+
+        if (result) {
+            const round = findAttribute(result, 'wasm', 'target_round');
+            if (round) {
+                setAscendStage('waiting_drand');
+                const checkDrand = setInterval(async () => {
+                    try {
+                        const response = await fetch(`https://api.drand.sh/${DRAND_HASH}/public/${parseInt(round)}`);
+                        if (response.ok) {
+                            clearInterval(checkDrand);
+                            await handleResolveAscend(parseInt(round));
+                        }
+                    } catch (e) { /* not ready yet */ }
+                }, 1000);
+            }
+        } else {
+            setAscendStage('idle');
+        }
     };
 
     const handleWheelComplete = () => {
@@ -236,6 +270,7 @@ const GameContainer = () => {
                         onAutoModeChange={setIsAutoMode}
                         onSpinComplete={handleAutoRollComplete}
                         spinResult={spinResult}
+                        ascendStage={ascendStage}
                     />
                 </>
             ) : (

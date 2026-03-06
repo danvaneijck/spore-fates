@@ -100,7 +100,7 @@ export const PartnerSelector: React.FC<Props> = ({
                                 </div>
 
                                 <div className="w-full aspect-square mb-1">
-                                    <MushroomRenderer traits={trait} minimal />
+                                    <MushroomRenderer tokenId={id} minimal />
                                 </div>
                                 <div className="text-xs font-bold text-center text-text">#{id}</div>
                             </div>

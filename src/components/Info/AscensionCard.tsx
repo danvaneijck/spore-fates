@@ -7,9 +7,11 @@ interface Props {
     canAscend: boolean;
     onAscend: () => void;
     isLoading: boolean;
+    ascendStage?: 'idle' | 'requesting' | 'waiting_drand' | 'resolving';
 }
 
-export const AscensionCard: React.FC<Props> = ({ traits, canAscend, onAscend, isLoading }) => {
+export const AscensionCard: React.FC<Props> = ({ traits, canAscend, onAscend, isLoading, ascendStage = 'idle' }) => {
+    const isBusy = isLoading || ascendStage !== 'idle';
     const isMaxed = traits.substrate === 4;
 
     // Helper for the 3 requirements
@@ -134,7 +136,7 @@ export const AscensionCard: React.FC<Props> = ({ traits, canAscend, onAscend, is
                     <div className="mt-6">
                         <button
                             onClick={onAscend}
-                            disabled={isLoading || !canAscend}
+                            disabled={isBusy || !canAscend}
                             className={`
                 relative w-full py-4 rounded-xl font-bold text-sm tracking-wider uppercase transition-all overflow-hidden group/btn
                 ${canAscend
@@ -147,10 +149,12 @@ export const AscensionCard: React.FC<Props> = ({ traits, canAscend, onAscend, is
                                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover/btn:translate-x-full transition-transform duration-1000" />
                             )}
 
-                            {isLoading ? (
+                            {isBusy ? (
                                 <span className="flex items-center justify-center gap-2">
                                     <Loader2 size={18} className="animate-spin" />
-                                    Channeling...
+                                    {ascendStage === 'waiting_drand' ? 'Awaiting cosmic energy...'
+                                        : ascendStage === 'resolving' ? 'Channeling...'
+                                        : 'Requesting ascension...'}
                                 </span>
                             ) : (
                                 <span className="flex items-center justify-center gap-2">

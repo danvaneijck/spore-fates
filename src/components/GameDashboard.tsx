@@ -5,9 +5,9 @@ import { MintInterface } from "./Mushroom/MintInterface";
 import { Route, Routes, useNavigate, useParams } from "react-router-dom";
 import GameContainer from "./GameContainer";
 import { MushroomGallery } from "./Mushroom/MushroomGallery";
-import { shroomService, TraitExtension } from "../services/shroomService";
+import { DRAND_HASH, shroomService, TraitExtension } from "../services/shroomService";
 import { findAttribute } from "../utils/transactionParser";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { NewMushroomReveal } from "./Overlays/NewMushroomReveal";
 import { GlobalStatsBanner } from "./Banners/GlobalStatsBanner";
 import { PlayerStatsCard } from "./Info/PlayerStatsCard";
@@ -39,23 +39,59 @@ const GameDashboard = () => {
     const [newMushroomId, setNewMushroomId] = useState<string | null>(null);
     const [newMushroomTraits, setNewMushroomTraits] = useState<TraitExtension | null>(null);
 
+    const [mintStage, setMintStage] = useState<'idle' | 'requesting' | 'waiting_drand' | 'resolving'>('idle');
+
+    const handleResolveMint = useCallback(async (mintId: string, round: number) => {
+        setMintStage('resolving');
+        try {
+            const msgs = await shroomService.makeResolveMintBatchMsg(address, mintId, round);
+            const result = await executeTransaction(msgs, 'resolve_mint', true);
+
+            if (result) {
+                const tokenId = findAttribute(result, "wasm", 'token_id');
+                if (tokenId) {
+                    setNewMushroomId(tokenId);
+                    setTimeout(async () => {
+                        const traits = await shroomService.getShroomTraits(tokenId);
+                        if (traits) {
+                            setNewMushroomTraits(traits);
+                            setRevealOpen(true);
+                        }
+                    }, 1000);
+                }
+            }
+        } finally {
+            setMintStage('idle');
+        }
+    }, [address, executeTransaction]);
+
+    const waitAndResolveMint = useCallback(async (mintId: string, round: number) => {
+        setMintStage('waiting_drand');
+        const checkDrand = setInterval(async () => {
+            try {
+                const response = await fetch(`https://api.drand.sh/${DRAND_HASH}/public/${round}`);
+                if (response.ok) {
+                    clearInterval(checkDrand);
+                    await handleResolveMint(mintId, round);
+                }
+            } catch (e) { /* not ready yet */ }
+        }, 1000);
+    }, [handleResolveMint]);
+
     const handleMint = async (priceRaw: string) => {
         if (!address) return;
-        const msg = shroomService.makeMintMsg(address, priceRaw);
-        const result = await executeTransaction(msg, 'mint', true);
+        setMintStage('requesting');
+        const msg = shroomService.makeRequestMintMsg(address, priceRaw);
+        const result = await executeTransaction(msg, 'request_mint');
 
         if (result) {
-            const tokenId = findAttribute(result, "wasm", 'token_id');
-            if (tokenId) {
-                setNewMushroomId(tokenId);
-                setTimeout(async () => {
-                    const traits = await shroomService.getShroomTraits(tokenId);
-                    if (traits) {
-                        setNewMushroomTraits(traits);
-                        setRevealOpen(true);
-                    }
-                }, 1000);
+            const mintId = findAttribute(result, "wasm", 'mint_id');
+            const round = findAttribute(result, "wasm", 'target_round');
+            if (mintId && round) {
+                await waitAndResolveMint(mintId, parseInt(round));
             }
+        } else {
+            setMintStage('idle');
         }
     };
 
@@ -112,7 +148,7 @@ const GameDashboard = () => {
 
             {/* Mint Interface */}
             <div className='mt-4'>
-                <MintInterface onMint={handleMint} isLoading={isLoading} />
+                <MintInterface onMint={handleMint} isLoading={isLoading} mintStage={mintStage} />
             </div>
 
             {/* Reveal Modal */}

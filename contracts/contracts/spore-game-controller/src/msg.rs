@@ -33,16 +33,25 @@ pub enum ExecuteMsg {
     Harvest {
         token_id: String,
     },
-    Ascend {
+    RequestAscend {
         token_id: String,
     },
-    Mint {},
+    ResolveAscend {
+        token_id: String,
+    },
+    RequestMint {},
+    ResolveMint {
+        mint_id: String,
+    },
     Recycle {
         token_id: String,
     },
-    Splice {
+    RequestSplice {
         parent_1_id: String,
         parent_2_id: String,
+    },
+    ResolveSplice {
+        splice_id: String,
     },
     AcceptMinterOwnership {
         cw721_contract: String,
@@ -67,10 +76,17 @@ pub enum QueryMsg {
     GetCurrentMintPrice {},
     GetPlayerProfile {
         address: String,
-        start_after: Option<String>,
-        limit: Option<u32>,
     },
     GetPendingSpin {
+        token_id: String,
+    },
+    GetPendingMint {
+        mint_id: String,
+    },
+    GetPendingSplice {
+        splice_id: String,
+    },
+    GetPendingAscend {
         token_id: String,
     },
     GetLeaderboard {},
@@ -123,11 +139,28 @@ pub struct PlayerProfileResponse {
     pub total_shares: Uint128,
     pub total_pending_rewards: Uint128,
     pub best_mushroom_id: Option<String>,
-    pub last_scanned_id: Option<String>,
 }
 
 #[cw_serde]
 pub struct PendingSpinResponse {
+    pub is_pending: bool,
+    pub target_round: u64,
+}
+
+#[cw_serde]
+pub struct PendingMintResponse {
+    pub is_pending: bool,
+    pub target_round: u64,
+}
+
+#[cw_serde]
+pub struct PendingSpliceResponse {
+    pub is_pending: bool,
+    pub target_round: u64,
+}
+
+#[cw_serde]
+pub struct PendingAscendResponse {
     pub is_pending: bool,
     pub target_round: u64,
 }

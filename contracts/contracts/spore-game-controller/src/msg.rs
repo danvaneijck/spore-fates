@@ -2,6 +2,8 @@ use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Decimal, Uint128, Uint64};
 use spore_fates::game::GlobalBiomass;
 
+use crate::state::LeaderboardEntry;
+
 #[cw_serde]
 pub struct InstantiateMsg {
     pub payment_denom: String,
@@ -31,13 +33,25 @@ pub enum ExecuteMsg {
     Harvest {
         token_id: String,
     },
-    Ascend {
+    RequestAscend {
         token_id: String,
     },
-    Mint {},
-    Splice {
+    ResolveAscend {
+        token_id: String,
+    },
+    RequestMint {},
+    ResolveMint {
+        mint_id: String,
+    },
+    Recycle {
+        token_id: String,
+    },
+    RequestSplice {
         parent_1_id: String,
         parent_2_id: String,
+    },
+    ResolveSplice {
+        splice_id: String,
     },
     AcceptMinterOwnership {
         cw721_contract: String,
@@ -62,12 +76,25 @@ pub enum QueryMsg {
     GetCurrentMintPrice {},
     GetPlayerProfile {
         address: String,
-        start_after: Option<String>,
-        limit: Option<u32>,
     },
     GetPendingSpin {
         token_id: String,
     },
+    GetPendingMint {
+        mint_id: String,
+    },
+    GetPendingSplice {
+        splice_id: String,
+    },
+    GetPendingAscend {
+        token_id: String,
+    },
+    GetLeaderboard {},
+}
+
+#[cw_serde]
+pub struct LeaderboardResponse {
+    pub entries: Vec<LeaderboardEntry>,
 }
 
 #[cw_serde]
@@ -93,6 +120,12 @@ pub struct GameStatsResponse {
     pub total_spins: u64,
     pub total_rewards_distributed: Uint128,
     pub total_biomass: GlobalBiomass,
+    pub total_mint_volume: Uint128,
+    pub total_spin_volume: Uint128,
+    pub total_rewards_recycled: Uint128,
+    pub total_harvests: u64,
+    pub total_splices: u64,
+    pub total_ascensions: u64,
 }
 
 #[cw_serde]
@@ -104,13 +137,30 @@ pub struct MintPriceResponse {
 pub struct PlayerProfileResponse {
     pub total_mushrooms: u64,
     pub total_shares: Uint128,
-    pub total_pending_rewards: Uint128,   // Calculated dynamically
-    pub best_mushroom_id: Option<String>, // The ID of their highest share mushroom
-    pub last_scanned_id: Option<String>,
+    pub total_pending_rewards: Uint128,
+    pub best_mushroom_id: Option<String>,
 }
 
 #[cw_serde]
 pub struct PendingSpinResponse {
+    pub is_pending: bool,
+    pub target_round: u64,
+}
+
+#[cw_serde]
+pub struct PendingMintResponse {
+    pub is_pending: bool,
+    pub target_round: u64,
+}
+
+#[cw_serde]
+pub struct PendingSpliceResponse {
+    pub is_pending: bool,
+    pub target_round: u64,
+}
+
+#[cw_serde]
+pub struct PendingAscendResponse {
     pub is_pending: bool,
     pub target_round: u64,
 }

@@ -1,4 +1,4 @@
-use cosmwasm_std::{entry_point, Binary, Deps, DepsMut, Env, MessageInfo, Response};
+use cosmwasm_std::{entry_point, to_json_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response};
 use cw721::msg::NftExtensionMsg;
 use cw721_base::traits::{Cw721Execute, Cw721Query};
 use cw721_metadata_onchain::Cw721MetadataContract;
@@ -9,7 +9,8 @@ pub mod msg;
 pub mod state;
 
 use crate::error::ContractError;
-use crate::msg::{InstantiateMsg, QueryMsg};
+use crate::msg::{GetSvgResponse, InstantiateMsg, QueryMsg};
+use crate::state::SVGS;
 
 pub type Extension = TraitExtension;
 
@@ -58,6 +59,10 @@ pub fn execute(
             token_uri,
             extension,
         } => {
+            // Store SVG separately to keep NftExtension lightweight
+            let svg = extension.generate_svg();
+            SVGS.save(deps.storage, &token_id, &svg)?;
+
             let standard_ext: NftExtensionMsg = extension.into();
 
             let cw721_msg = cw721_metadata_onchain::msg::ExecuteMsg::Mint {
@@ -117,6 +122,16 @@ pub fn execute(
             Ok(base_contract.execute(deps, &env, &info, cw721_msg)?)
         }
         ExecuteMsg::Burn { token_id } => {
+            // Only minter can burn
+            let minter = base_contract.query_minter_ownership(deps.storage)?;
+
+            if info.sender.to_string() != minter.owner.unwrap().to_string() {
+                return Err(ContractError::Unauthorized {});
+            }
+
+            // Clean up separate SVG storage
+            SVGS.remove(deps.storage, &token_id);
+
             let cw721_msg = cw721_metadata_onchain::msg::ExecuteMsg::Burn { token_id };
             Ok(base_contract.execute(deps, &env, &info, cw721_msg)?)
         }
@@ -172,6 +187,10 @@ fn execute_update_traits(
         });
     }
 
+    // Regenerate and store SVG separately
+    let svg = traits.generate_svg();
+    SVGS.save(deps.storage, &token_id, &svg)?;
+
     let token_info = base_contract.query_nft_info(deps.as_ref().storage, token_id.clone())?;
 
     // If extension is null, we create a default one
@@ -179,6 +198,10 @@ fn execute_update_traits(
 
     // Overwrite the attributes with the new ones from your TraitExtension
     current_extension.attributes = Some(traits.clone().into());
+
+    // Strip image data from NftExtension (lazy migration for pre-upgrade tokens)
+    current_extension.image = None;
+    current_extension.image_data = None;
 
     let extension_msg: NftExtensionMsg = current_extension.into();
 
@@ -304,6 +327,21 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> Result<Binary, ContractErro
         QueryMsg::GetCollectionInfoAndExtension {} => {
             let cw721_msg = cw721_metadata_onchain::msg::QueryMsg::GetCollectionInfoAndExtension {};
             Ok(base_contract.query(deps, &env, cw721_msg)?)
+        }
+        QueryMsg::GetSvg { token_id } => {
+            // Try separate SVGS map first, fall back to NftExtension for pre-migration tokens
+            match SVGS.may_load(deps.storage, &token_id)? {
+                Some(svg_data) => Ok(to_json_binary(&GetSvgResponse { svg: svg_data })?),
+                None => {
+                    let nft_info =
+                        base_contract.query_nft_info(deps.storage, token_id)?;
+                    let svg = nft_info
+                        .extension
+                        .and_then(|ext| ext.image_data)
+                        .unwrap_or_default();
+                    Ok(to_json_binary(&GetSvgResponse { svg })?)
+                }
+            }
         }
     }
 }

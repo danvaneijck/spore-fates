@@ -5,6 +5,7 @@ import { useWalletStore } from "../store/walletStore";
 import { useTransaction } from "./useTransaction";
 import { showTransactionToast } from "../utils/toast";
 import { NETWORK_CONFIG } from "../config";
+import { walletStrategy } from "../components/Wallet/WalletConnect";
 
 const DELEGATE_ADDRESS = import.meta.env.VITE_DELEGATE_ADDRESS;
 
@@ -41,7 +42,7 @@ class MultiContractAuthz {
 
 export const useAutoSign = () => {
     const [isToggling, setIsToggling] = useState(false);
-    const { connectedWallet, isAutoSignEnabled, setAutoSignEnabled } =
+    const { connectedWallet, isAutoSignEnabled, setAutoSignSession } =
         useWalletStore();
     const { executeTransaction } = useTransaction();
 
@@ -57,8 +58,54 @@ export const useAutoSign = () => {
 
         try {
             const msgs = [];
+            const expirationSeconds = 15 * 60;
+            const expirationTimestamp =
+                Math.floor(Date.now() / 1000) + expirationSeconds;
+            const expirationMs = Date.now() + expirationSeconds * 1000;
 
+            // --- ENABLING ---
             if (!isAutoSignEnabled) {
+                const authMessage = `Authorize Auto-Sign for ${connectedWallet}\nValid until: ${expirationMs}`;
+
+                // 1. Get Signature FIRST
+                try {
+                    if (walletStrategy.wallet == "keplr") {
+                        const signature = await window.keplr.signArbitrary(
+                            NETWORK_CONFIG.chainId,
+                            connectedWallet,
+                            authMessage
+                        );
+
+                        const loginRes = await fetch("/api/auth", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                address: connectedWallet,
+                                message: authMessage,
+                                signature: signature.signature,
+                                pubKey: signature.pub_key,
+                            }),
+                        });
+                        if (!loginRes.ok)
+                            throw new Error("Server rejected signature");
+
+                        const { token } = await loginRes.json();
+
+                        setAutoSignSession(true, token, expirationMs);
+                    } else {
+                        throw new Error("Only Keplr supported");
+                    }
+                } catch (sigError) {
+                    console.log(sigError);
+                    showTransactionToast.dismiss(toastId);
+                    showTransactionToast.error(
+                        "Signature rejected. Auto-sign cancelled."
+                    );
+                    return; // Stop here if they don't sign
+                }
+
+                // 2. Set Session State IMMEDIATELY
+                // We do this before the transaction so if it succeeds, the store is ready
                 const gameLimitBinary =
                     CosmwasmWasmV1Authz.CombinedLimit.encode({
                         callsRemaining: "100000",
@@ -118,7 +165,7 @@ export const useAutoSign = () => {
                     MsgGrantWithAuthorization.fromJSON({
                         granter: connectedWallet,
                         grantee: DELEGATE_ADDRESS,
-                        expiration: Math.floor(Date.now() / 1000) + 15 * 60,
+                        expiration: expirationTimestamp,
                         authorization: customAuth,
                     })
                 );
@@ -136,24 +183,20 @@ export const useAutoSign = () => {
 
             const newState = !isAutoSignEnabled;
             if (result && newState == true) {
-                setAutoSignEnabled(newState);
-            } else if (newState == false) {
-                setAutoSignEnabled(newState);
-            }
-
-            if (result) {
                 showTransactionToast.dismiss(toastId);
                 showTransactionToast.success(
                     result.txHash,
-                    newState ? "Auto-Sign Enabled!" : "Auto-Sign Disabled"
+                    "Auto-Sign Enabled!"
                 );
-            } else {
+            } else if (newState == false) {
+                setAutoSignSession(false, null, 0);
                 showTransactionToast.dismiss(toastId);
             }
         } catch (e: any) {
             console.error("Auto Sign Toggle Failed", e);
             showTransactionToast.dismiss(toastId);
             showTransactionToast.error("Failed to update Auto-Sign settings");
+            if (!isAutoSignEnabled) setAutoSignSession(false, null, 0);
         } finally {
             setIsToggling(false);
         }

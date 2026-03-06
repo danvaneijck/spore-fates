@@ -15,14 +15,6 @@ const endpoints = getNetworkEndpoints(network);
 // Initialize the Query API (Testnet endpoint)
 const wasmApi = new ChainGrpcWasmApi(endpoints.grpc);
 
-const chunkArray = <T>(array: T[], size: number): T[][] => {
-    const chunked: T[][] = [];
-    for (let i = 0; i < array.length; i += size) {
-        chunked.push(array.slice(i, i + size));
-    }
-    return chunked;
-};
-
 export interface LeaderboardItem {
     rank: number;
     id: string;
@@ -88,7 +80,6 @@ export interface PlayerProfile {
     total_shares: string;
     total_pending_rewards: string;
     best_mushroom_id: string | null;
-    last_scanned_id?: string | null;
 }
 
 export const calculateEstimatedShares = (traits: TraitExtension): number => {
@@ -108,19 +99,13 @@ export const calculateEstimatedShares = (traits: TraitExtension): number => {
 
 export const shroomService = {
     /**
-     * Internal: Fetch a single page of stats
+     * Fetch player profile. The contract now uses an internal PLAYER_INFO index
+     * so no cross-contract query or pagination is needed.
      */
-    async getPlayerProfilePage(
-        address: string,
-        startAfter?: string
-    ): Promise<PlayerProfile | null> {
+    async getFullPlayerProfile(address: string): Promise<PlayerProfile | null> {
         try {
             const queryMsg = {
-                get_player_profile: {
-                    address,
-                    start_after: startAfter || null,
-                    limit: 50,
-                },
+                get_player_profile: { address },
             };
             const response = await wasmApi.fetchSmartContractState(
                 NETWORK_CONFIG.gameControllerAddress,
@@ -128,62 +113,9 @@ export const shroomService = {
             );
             return JSON.parse(new TextDecoder().decode(response.data));
         } catch (error) {
-            console.error("Error fetching profile page:", error);
+            console.error("Error fetching player profile:", error);
             return null;
         }
-    },
-
-    /**
-     * Public: Recursively fetch ALL pages and sum them up.
-     * This solves the pagination problem completely for the UI.
-     */
-    async getFullPlayerProfile(address: string): Promise<PlayerProfile | null> {
-        let totalMushrooms = 0;
-        let totalShares = BigInt(0);
-        let totalRewards = BigInt(0);
-        let globalBestId: string | null = null;
-
-        let lastId: string | undefined = undefined;
-        let hasMore = true;
-
-        // Loop until no more tokens
-        while (hasMore) {
-            const page: PlayerProfile | null = await this.getPlayerProfilePage(
-                address,
-                lastId
-            );
-
-            if (!page || page.total_mushrooms === 0) {
-                break;
-            }
-
-            // Aggregate Data
-            totalMushrooms += page.total_mushrooms;
-            totalShares += BigInt(page.total_shares);
-            totalRewards += BigInt(page.total_pending_rewards);
-
-            // Simple logic: grab the first "best" found.
-            // (To be perfectly accurate, the contract would need to return shares of best_id,
-            // but this is sufficient for a general stats card).
-            if (!globalBestId && page.best_mushroom_id) {
-                globalBestId = page.best_mushroom_id;
-            }
-
-            // Pagination Control
-            if (page.last_scanned_id) {
-                lastId = page.last_scanned_id;
-            } else {
-                hasMore = false;
-            }
-        }
-
-        return {
-            total_mushrooms: totalMushrooms,
-            total_shares: totalShares.toString(),
-            total_pending_rewards: totalRewards.toString(),
-            best_mushroom_id: globalBestId,
-            last_scanned_id: null,
-        };
     },
 
     /**
@@ -293,21 +225,33 @@ export const shroomService = {
 
     async getTokensOwned(ownerAddress: string): Promise<string[]> {
         try {
-            const queryMsg = {
-                tokens: {
-                    owner: ownerAddress,
-                    limit: 30, // Fetch first 30 for now
-                },
-            };
+            const allTokens: string[] = [];
+            let startAfter: string | undefined = undefined;
+            const pageLimit = 20;
 
-            const response = await wasmApi.fetchSmartContractState(
-                NETWORK_CONFIG.cw721Address,
-                queryMsg
-            );
+            while (true) {
+                const queryMsg: Record<string, unknown> = {
+                    tokens: {
+                        owner: ownerAddress,
+                        limit: pageLimit,
+                        ...(startAfter ? { start_after: startAfter } : {}),
+                    },
+                };
 
-            const data = JSON.parse(new TextDecoder().decode(response.data));
-            // standard cw721 response: { tokens: ["1", "2", "3"] }
-            return data.tokens || [];
+                const response = await wasmApi.fetchSmartContractState(
+                    NETWORK_CONFIG.cw721Address,
+                    queryMsg
+                );
+
+                const data = JSON.parse(new TextDecoder().decode(response.data));
+                const tokens: string[] = data.tokens || [];
+                allTokens.push(...tokens);
+
+                if (tokens.length < pageLimit) break;
+                startAfter = tokens[tokens.length - 1];
+            }
+
+            return allTokens;
         } catch (error) {
             console.error("Error fetching owned tokens:", error);
             return [];
@@ -426,39 +370,96 @@ export const shroomService = {
     },
 
     /**
-     * Construct the Mint Message
-     * Calling the CW721 directly (Assuming the user is allowed to mint,
-     * or this is a demo where the wallet is the 'minter')
+     * REQUEST MINT (Step 1: Pay + save pending state)
      */
-    makeMintMsg(userAddress: string, priceRaw: string) {
-        const msg = {
-            mint: {},
-        };
-
+    makeRequestMintMsg(userAddress: string, priceRaw: string) {
         return new MsgExecuteContract({
             sender: userAddress,
             contractAddress: NETWORK_CONFIG.gameControllerAddress,
-            msg: msg,
+            msg: { request_mint: {} },
             funds: {
                 denom: NETWORK_CONFIG.paymentDenom,
-                amount: priceRaw, // Use the dynamic price passed in
+                amount: priceRaw,
             },
         });
     },
 
-    makeSpliceMsg(userAddress: string, parent1Id: string, parent2Id: string) {
-        const msg = {
-            splice: {
-                parent_1_id: parent1Id,
-                parent_2_id: parent2Id,
-            },
-        };
+    /**
+     * RESOLVE MINT (Step 2: Fetch drand beacon + resolve)
+     */
+    async makeResolveMintBatchMsg(
+        userAddress: string,
+        mintId: string,
+        targetRound: number
+    ) {
+        const beacon = await this.fetchDrandBeacon(targetRound);
 
+        const oracleMsg = new MsgExecuteContract({
+            sender: userAddress,
+            contractAddress: NETWORK_CONFIG.oracleAddress,
+            msg: {
+                add_beacon: {
+                    round: targetRound.toString(),
+                    signature: beacon.signature,
+                    randomness: beacon.randomness,
+                },
+            },
+        });
+
+        const gameMsg = new MsgExecuteContract({
+            sender: userAddress,
+            contractAddress: NETWORK_CONFIG.gameControllerAddress,
+            msg: { resolve_mint: { mint_id: mintId } },
+        });
+
+        return [oracleMsg, gameMsg];
+    },
+
+    /**
+     * REQUEST SPLICE (Step 1: Lock parents + save pending state)
+     */
+    makeRequestSpliceMsg(userAddress: string, parent1Id: string, parent2Id: string) {
         return new MsgExecuteContract({
             sender: userAddress,
             contractAddress: NETWORK_CONFIG.gameControllerAddress,
-            msg: msg,
+            msg: {
+                request_splice: {
+                    parent_1_id: parent1Id,
+                    parent_2_id: parent2Id,
+                },
+            },
         });
+    },
+
+    /**
+     * RESOLVE SPLICE (Step 2: Fetch drand beacon + resolve)
+     */
+    async makeResolveSpliceBatchMsg(
+        userAddress: string,
+        spliceId: string,
+        targetRound: number
+    ) {
+        const beacon = await this.fetchDrandBeacon(targetRound);
+
+        const oracleMsg = new MsgExecuteContract({
+            sender: userAddress,
+            contractAddress: NETWORK_CONFIG.oracleAddress,
+            msg: {
+                add_beacon: {
+                    round: targetRound.toString(),
+                    signature: beacon.signature,
+                    randomness: beacon.randomness,
+                },
+            },
+        });
+
+        const gameMsg = new MsgExecuteContract({
+            sender: userAddress,
+            contractAddress: NETWORK_CONFIG.gameControllerAddress,
+            msg: { resolve_splice: { splice_id: spliceId } },
+        });
+
+        return [oracleMsg, gameMsg];
     },
 
     getSpinCost(substrateLevel: number): string {
@@ -536,20 +537,45 @@ export const shroomService = {
     },
 
     /**
-     * Construct Ascend Message
+     * REQUEST ASCEND (Step 1: Lock token + save pending state)
      */
-    makeAscendMsg(userAddress: string, tokenId: string) {
-        const msg = {
-            ascend: {
-                token_id: tokenId,
-            },
-        };
-
+    makeRequestAscendMsg(userAddress: string, tokenId: string) {
         return new MsgExecuteContract({
             sender: userAddress,
             contractAddress: NETWORK_CONFIG.gameControllerAddress,
-            msg: msg,
+            msg: { request_ascend: { token_id: tokenId } },
         });
+    },
+
+    /**
+     * RESOLVE ASCEND (Step 2: Fetch drand beacon + resolve)
+     */
+    async makeResolveAscendBatchMsg(
+        userAddress: string,
+        tokenId: string,
+        targetRound: number
+    ) {
+        const beacon = await this.fetchDrandBeacon(targetRound);
+
+        const oracleMsg = new MsgExecuteContract({
+            sender: userAddress,
+            contractAddress: NETWORK_CONFIG.oracleAddress,
+            msg: {
+                add_beacon: {
+                    round: targetRound.toString(),
+                    signature: beacon.signature,
+                    randomness: beacon.randomness,
+                },
+            },
+        });
+
+        const gameMsg = new MsgExecuteContract({
+            sender: userAddress,
+            contractAddress: NETWORK_CONFIG.gameControllerAddress,
+            msg: { resolve_ascend: { token_id: tokenId } },
+        });
+
+        return [oracleMsg, gameMsg];
     },
 
     async getGameStats(): Promise<GameStats | null> {
@@ -568,10 +594,10 @@ export const shroomService = {
     },
 
     /**
-     * Create multiple mint messages with correct progressive pricing
+     * Create multiple request_mint messages with correct progressive pricing.
+     * All requests target the same drand round and can be resolved together.
      */
-    async makeBatchMintMsgs(userAddress: string, count: number) {
-        // 1. Get Live Data from Contract
+    async makeBatchRequestMintMsgs(userAddress: string, count: number) {
         const priceResponse = await this.getCurrentMintPrice();
         const config = await this.getGameConfig();
 
@@ -580,17 +606,14 @@ export const shroomService = {
 
         const msgs = [];
 
-        // 2. Generate Messages with Progressive Costs
         for (let i = 0; i < count; i++) {
             const specificPrice = currentPrice + increment * BigInt(i);
-
-            const msg = { mint: {} };
 
             msgs.push(
                 new MsgExecuteContract({
                     sender: userAddress,
                     contractAddress: NETWORK_CONFIG.gameControllerAddress,
-                    msg: msg,
+                    msg: { request_mint: {} },
                     funds: {
                         denom: NETWORK_CONFIG.paymentDenom,
                         amount: specificPrice.toString(),
@@ -600,6 +623,123 @@ export const shroomService = {
         }
 
         return msgs;
+    },
+
+    /**
+     * Resolve multiple pending mints in one batch transaction.
+     */
+    async makeBatchResolveMintMsgs(
+        userAddress: string,
+        mintIds: string[],
+        targetRound: number
+    ) {
+        const beacon = await this.fetchDrandBeacon(targetRound);
+
+        // Oracle update only needs to happen once
+        const oracleMsg = new MsgExecuteContract({
+            sender: userAddress,
+            contractAddress: NETWORK_CONFIG.oracleAddress,
+            msg: {
+                add_beacon: {
+                    round: targetRound.toString(),
+                    signature: beacon.signature,
+                    randomness: beacon.randomness,
+                },
+            },
+        });
+
+        const resolveMsgs = mintIds.map(
+            (mintId) =>
+                new MsgExecuteContract({
+                    sender: userAddress,
+                    contractAddress: NETWORK_CONFIG.gameControllerAddress,
+                    msg: { resolve_mint: { mint_id: mintId } },
+                })
+        );
+
+        return [oracleMsg, ...resolveMsgs];
+    },
+
+    /**
+     * Shared helper: Fetch a drand beacon by round number
+     */
+    async fetchDrandBeacon(round: number) {
+        try {
+            const response = await fetch(
+                `${DRAND_HTTP_URL}/${DRAND_HASH}/public/${round}`
+            );
+            if (!response.ok) throw new Error("Beacon not ready");
+            return await response.json();
+        } catch (e) {
+            console.error("Drand round not ready yet");
+            throw new Error("Randomness not generated yet. Please wait.");
+        }
+    },
+
+    /**
+     * Query pending mint status
+     */
+    async getPendingMintStatus(
+        mintId: string
+    ): Promise<{ is_pending: boolean; target_round: number }> {
+        try {
+            const queryMsg = { get_pending_mint: { mint_id: mintId } };
+            const response = await wasmApi.fetchSmartContractState(
+                NETWORK_CONFIG.gameControllerAddress,
+                queryMsg
+            );
+            const data = JSON.parse(new TextDecoder().decode(response.data));
+            return {
+                is_pending: data.is_pending,
+                target_round: parseInt(data.target_round || "0"),
+            };
+        } catch (error) {
+            return { is_pending: false, target_round: 0 };
+        }
+    },
+
+    /**
+     * Query pending splice status
+     */
+    async getPendingSpliceStatus(
+        spliceId: string
+    ): Promise<{ is_pending: boolean; target_round: number }> {
+        try {
+            const queryMsg = { get_pending_splice: { splice_id: spliceId } };
+            const response = await wasmApi.fetchSmartContractState(
+                NETWORK_CONFIG.gameControllerAddress,
+                queryMsg
+            );
+            const data = JSON.parse(new TextDecoder().decode(response.data));
+            return {
+                is_pending: data.is_pending,
+                target_round: parseInt(data.target_round || "0"),
+            };
+        } catch (error) {
+            return { is_pending: false, target_round: 0 };
+        }
+    },
+
+    /**
+     * Query pending ascend status
+     */
+    async getPendingAscendStatus(
+        tokenId: string
+    ): Promise<{ is_pending: boolean; target_round: number }> {
+        try {
+            const queryMsg = { get_pending_ascend: { token_id: tokenId } };
+            const response = await wasmApi.fetchSmartContractState(
+                NETWORK_CONFIG.gameControllerAddress,
+                queryMsg
+            );
+            const data = JSON.parse(new TextDecoder().decode(response.data));
+            return {
+                is_pending: data.is_pending,
+                target_round: parseInt(data.target_round || "0"),
+            };
+        } catch (error) {
+            return { is_pending: false, target_round: 0 };
+        }
     },
 
     /**
@@ -636,21 +776,8 @@ export const shroomService = {
         tokenId: string,
         targetRound: number
     ) {
-        // A. Fetch the beacon from Drand Public API
-        let beacon;
-        try {
-            const response = await fetch(
-                `${DRAND_HTTP_URL}/${DRAND_HASH}/public/${targetRound}`
-            );
-            beacon = await response.json();
-        } catch (e) {
-            console.error("Drand round not ready yet");
-            throw new Error("Randomness not generated yet. Please wait.");
-        }
+        const beacon = await this.fetchDrandBeacon(targetRound);
 
-        // B. Construct Oracle Update Message
-        // The contract expects HexBinary, which accepts the raw hex string from Drand API.
-        // No Base64 conversion needed.
         const oracleMsg = new MsgExecuteContract({
             sender: userAddress,
             contractAddress: NETWORK_CONFIG.oracleAddress,
@@ -716,87 +843,64 @@ export const shroomService = {
      * 3. Sorts by power
      * 4. Fetches owners for top 3
      */
+    async getSvg(tokenId: string): Promise<string | null> {
+        try {
+            const queryMsg = { get_svg: { token_id: tokenId } };
+            const response = await wasmApi.fetchSmartContractState(
+                NETWORK_CONFIG.cw721Address,
+                queryMsg
+            );
+            const data = JSON.parse(new TextDecoder().decode(response.data));
+            return data.svg || null;
+        } catch (error) {
+            console.error("Error fetching SVG:", error);
+            return null;
+        }
+    },
+
     async getLeaderboard(): Promise<LeaderboardItem[]> {
         try {
-            // 1. Get the range (1 to TotalMinted)
-            const stats = await this.getGameStats();
-            if (!stats) return [];
-
-            const totalMinted = stats.total_minted;
-            if (totalMinted === 0) return [];
-
-            // Create array of IDs ["1", "2", ... total]
-            const allIds = Array.from({ length: totalMinted }, (_, i) =>
-                (i + 1).toString()
+            // Query the on-chain leaderboard (top 10 maintained by the contract)
+            const queryMsg = { get_leaderboard: {} };
+            const res = await wasmApi.fetchSmartContractState(
+                NETWORK_CONFIG.gameControllerAddress,
+                queryMsg
             );
+            const { entries } = JSON.parse(
+                new TextDecoder().decode(res.data)
+            ) as { entries: { token_id: string; score: string }[] };
 
-            // 2. Fetch Game Info for ALL tokens (Batched to avoid RPC rate limits)
-            const BATCH_SIZE = 20; // 20 requests at a time
-            const chunks = chunkArray(allIds, BATCH_SIZE);
-            let allTokenData: { id: string; power: number }[] = [];
+            if (entries.length === 0) return [];
 
-            for (const chunk of chunks) {
-                // Run a batch in parallel
-                const batchResults = await Promise.all(
-                    chunk.map(async (id) => {
-                        try {
-                            const info = await this.getTokenGameInfo(id);
-                            // If info is null, the token was burned (spliced)
-                            if (!info) return null;
-                            return {
-                                id,
-                                power: parseFloat(info.current_shares),
-                            };
-                        } catch (e) {
-                            return null;
-                        }
-                    })
-                );
-                // Filter out nulls (burned tokens) and add to list
-                const validResults = batchResults.filter(
-                    (item) => item !== null
-                ) as { id: string; power: number }[];
-                allTokenData = [...allTokenData, ...validResults];
-            }
-
-            // 3. Sort by Power (Descending)
-            allTokenData.sort((a, b) => b.power - a.power);
-
-            // 4. Take Top 3 and fetch their Owners
-            const top3 = allTokenData.slice(0, 3);
-
-            const leaderboardWithOwners = await Promise.all(
-                top3.map(async (item, index) => {
-                    // We need to fetch the owner from CW721 for the display
+            // Only fetch owners for the top 3
+            const top3 = entries.slice(0, 3);
+            const leaderboard = await Promise.all(
+                top3.map(async (entry, index) => {
                     let owner = "Unknown";
                     try {
-                        const queryMsg = { owner_of: { token_id: item.id } };
-                        const res = await wasmApi.fetchSmartContractState(
+                        const ownerRes = await wasmApi.fetchSmartContractState(
                             NETWORK_CONFIG.cw721Address,
-                            queryMsg
+                            { owner_of: { token_id: entry.token_id } }
                         );
                         const data = JSON.parse(
-                            new TextDecoder().decode(res.data)
+                            new TextDecoder().decode(ownerRes.data)
                         );
-                        owner = data.owner;
-                        // Format address (inj1...xyz)
-                        owner = `${owner.slice(0, 6)}...${owner.slice(-4)}`;
+                        owner = `${data.owner.slice(0, 6)}...${data.owner.slice(-4)}`;
                     } catch (e) {
-                        console.error(`Failed to fetch owner for #${item.id}`);
+                        console.error(`Failed to fetch owner for #${entry.token_id}`);
                     }
-
                     return {
                         rank: index + 1,
-                        id: item.id,
-                        power: item.power,
+                        id: entry.token_id,
+                        power: parseFloat(entry.score),
                         owner,
                     };
                 })
             );
 
-            return leaderboardWithOwners;
+            return leaderboard;
         } catch (error) {
-            console.error("Error calculating leaderboard:", error);
+            console.error("Error fetching leaderboard:", error);
             return [];
         }
     },

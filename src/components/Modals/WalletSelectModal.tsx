@@ -79,7 +79,7 @@ export const WalletSelectModal: React.FC = () => {
                         color="blue-500"
                     />
 
-                    <WalletOption
+                    {/* <WalletOption
                         type={WalletType.Leap}
                         name="Leap"
                         icon="🐸" // Replace with <img src={leapLogo} />
@@ -91,7 +91,7 @@ export const WalletSelectModal: React.FC = () => {
                         name="MetaMask"
                         icon="🦊" // Replace with <img src={metamaskLogo} />
                         color="orange-500"
-                    />
+                    /> */}
                 </div>
 
                 {/* Footer */}

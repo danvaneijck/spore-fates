@@ -30,9 +30,9 @@ export const GlobalStatsBanner: React.FC<Props> = ({ refreshTrigger = 0 }) => {
         fetchGlobalStats();
         fetchLeaderboard();
 
-        // Poll stats fast (every 10s), Leaderboard slow (every 30s) to save RPC
+        // Poll stats fast (every 10s), Leaderboard every 30s
         const statInterval = setInterval(fetchGlobalStats, 10000);
-        const lbInterval = setInterval(fetchLeaderboard, 60000);
+        const lbInterval = setInterval(fetchLeaderboard, 30000);
 
         return () => {
             clearInterval(statInterval);

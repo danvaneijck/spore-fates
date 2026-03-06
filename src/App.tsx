@@ -1,7 +1,8 @@
 import { ToastProvider } from './components/Providers/ToastProvider';
-import { Sprout, Github, Twitter, BookOpen, Home } from 'lucide-react';
+import { Sprout, Github, Twitter, BookOpen, Home, Code } from 'lucide-react';
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
 import { About } from './pages/about';
+import { Contracts } from './pages/contracts';
 import GameDashboard from './components/GameDashboard';
 import { WalletConnectButton } from './components/Wallet/WalletConnectButton';
 import { WalletSelectModal } from './components/Modals/WalletSelectModal';
@@ -39,11 +40,17 @@ function App() {
                 <Link to="/about" className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-text hover:text-primary rounded-full hover:bg-background transition-all">
                   <BookOpen size={16} /> Rules & Mechanics
                 </Link>
+                <Link to="/contracts" className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-text hover:text-primary rounded-full hover:bg-background transition-all">
+                  <Code size={16} /> Contracts
+                </Link>
               </nav>
 
-              <div className='md:hidden'>
+              <div className='md:hidden flex gap-1'>
                 <Link to="/about" className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-text hover:text-primary rounded-full hover:bg-background transition-all">
                   About
+                </Link>
+                <Link to="/contracts" className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-text hover:text-primary rounded-full hover:bg-background transition-all">
+                  Contracts
                 </Link>
               </div>
 
@@ -66,6 +73,7 @@ function App() {
         <main className="mx-auto px-4 sm:px-6 lg:px-10 ">
           <Routes>
             <Route path="/about" element={<About />} />
+            <Route path="/contracts" element={<Contracts />} />
             <Route path="/*" element={<GameDashboard />} />
           </Routes>
         </main>
